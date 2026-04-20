@@ -1,7 +1,10 @@
 from django.urls import path
-
 from . import views
 
 urlpatterns = [
-    path("", views.index, name="index")
+    # Views
+    path("", views.index, name="index"),
+
+    # API
+    path("api/getHalteList", views.getHalteList, name="getHalteList" )
 ]

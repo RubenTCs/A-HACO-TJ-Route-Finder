@@ -1,2 +1,14 @@
-{% extends 'base.html' %}   
-{% load static %}
+{% extends 'base.html' %} {% load static %} {% block content %}
+
+<div class="route-layout">
+    <div class="row g-4 align-items-stretch">
+        {% include 'sections/form.html' %} 
+        {% include 'sections/visual_map.html' %}
+    </div>
+
+    {% include 'sections/results.html' %}
+</div>
+
+<script src="{% static 'js/form.js' %}"></script>
+
+{% endblock %}

@@ -1,0 +1,131 @@
+<div class="col-12 col-lg-4">
+    <div class="card form-container-pink h-100 route-form-card p-4 rounded-4">
+        {% comment %} TODO: Handle to backend {% endcomment %}
+        <form action="" method="post" class="h-100 d-flex flex-column">
+            {% csrf_token %}
+
+            <!-- Halte Awal -->
+            <div class="mb-3">
+                <label
+                    for="halteAwal"
+                    class="form-label fw-semibold text-dark-gray"
+                >
+                    Halte awal
+                </label>
+                <input
+                    type="text"
+                    class="form-control border form-input-blue"
+                    id="halteAwal"
+                    name="halte_asal"
+                    placeholder="Blok M"
+                    list="halteList"
+                    required
+                />
+            </div>
+
+            <!-- Halte Tujuan -->
+            <div class="mb-3">
+                <label
+                    for="halteTujuan"
+                    class="form-label fw-semibold text-dark-gray"
+                >
+                    Halte Tujuan
+                </label>
+                <input
+                    type="text"
+                    class="form-control border form-input-blue"
+                    id="halteTujuan"
+                    name="halte_tujuan"
+                    placeholder="Bundaran HI Astra"
+                    list="halteList"
+                    required
+                />
+            </div>
+
+            <!-- Hari/Tanggal -->
+            <div class="mb-3">
+                <label
+                    for="tanggalBerangkat"
+                    class="form-label fw-semibold text-dark-gray"
+                >
+                    Hari/Tanggal
+                </label>
+                <input
+                    type="date"
+                    class="form-control border form-input-blue"
+                    id="tanggalBerangkat"
+                    name="tanggal_berangkat"
+                    value="{% now 'Y-m-d' %}"
+                    required
+                />
+            </div>
+
+            <!-- Jam -->
+            <div class="mb-3">
+                <label
+                    for="jamBerangkat"
+                    class="form-label fw-semibold text-dark-gray"
+                >
+                    Jam
+                </label>
+                <input
+                    type="time"
+                    class="form-control border form-input-blue"
+                    id="jamBerangkat"
+                    name="jam_berangkat"
+                    value="{% now 'H:i' %}"
+                    required
+                />
+            </div>
+
+            <!-- Preferensi Rute -->
+            <div class="mb-3">
+                <label
+                    for="preferensiRute"
+                    class="form-label fw-semibold text-dark-gray"
+                >
+                    Preferensi rute
+                </label>
+                <select
+                    class="form-select border form-input-blue"
+                    id="preferensiRute"
+                    name="preferensi"
+                    required
+                >
+                    <option value="murah" selected>Paling murah</option>
+                    <option value="cepat">Paling cepat</option>
+                    <option value="min_transit">Paling sedikit transit</option>
+                    <option value="seimbang">Setimbang</option>
+                </select>
+            </div>
+
+            <!-- Metode Solver -->
+            <div class="mb-4">
+                <label
+                    for="metode"
+                    class="form-label fw-semibold text-dark-gray"
+                >
+                    Metode Solver
+                </label>
+                <select
+                    class="form-select border form-input-blue"
+                    id="metode"
+                    name="metode_solver"
+                    required
+                >
+                    <option value="MILP" selected>MILP</option>
+                    <option value="HACO">HACO</option>
+                    <option value="ASTAR">A*</option>
+                </select>
+            </div>
+
+            <!-- Button -->
+            <div class="d-grid mt-auto">
+                <button type="submit" class="btn btn-lg btn-cyan fw-semibold">
+                    Cari Rute
+                </button>
+            </div>
+        </form>
+        <datalist id="halteList"></datalist>
+    </div>
+</div>

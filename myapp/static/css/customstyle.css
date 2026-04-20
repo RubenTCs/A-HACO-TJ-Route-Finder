@@ -1,0 +1,94 @@
+.form-container-pink {
+    background-color: #ffb3ba;
+}
+
+.form-input-blue {
+    background-color: #d5e5e8;
+    border: none;
+}
+
+.btn-cyan {
+    background-color: #4dd0e1;
+    color: #333;
+    border: none;
+}
+
+.btn-cyan:hover {
+    background-color: #26c6da;
+    color: #333;
+}
+
+.text-dark-gray {
+    color: #333;
+}
+
+.min-height-70 {
+    min-height: 70vh;
+}
+
+.route-layout {
+    padding-bottom: 1rem;
+}
+
+.route-form-card {
+    min-height: 100%;
+}
+
+.route-visual-card {
+    min-height: 100%;
+    background: #a8ff9a;
+    color: #111;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+}
+
+.route-hero-title {
+    font-size: clamp(2rem, 3vw, 3rem);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.route-placeholder-copy {
+    max-width: 28rem;
+    margin-inline: auto;
+    font-size: 1rem;
+    opacity: 0.8;
+}
+
+.route-results-card {
+    background: #f6ccf1;
+    min-height: 260px;
+}
+
+.section-title {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #222;
+}
+
+.route-summary-grid {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.98rem;
+    color: #222;
+}
+
+.route-placeholder-panel {
+    min-height: 140px;
+    padding: 0.25rem 0;
+}
+
+.route-placeholder-panel-large {
+    min-height: 180px;
+}
+
+.route-placeholder-text {
+    font-size: 0.98rem;
+    color: #222;
+}
+
+@media (max-width: 991.98px) {
+    .route-visual-card {
+        min-height: 320px;
+    }
+}
