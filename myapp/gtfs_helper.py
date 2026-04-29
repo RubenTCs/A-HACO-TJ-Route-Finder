@@ -15,6 +15,8 @@ class GTFSHelper:
         self._calendar = None
         self._fare_attributes = None
         self._fare_rules = None
+        self._shapes = None
+        self._transfers = None
 
     def __get_feed(self):
         if self.__feed is None:
@@ -68,6 +70,18 @@ class GTFSHelper:
         if self._fare_rules is None:
             self._fare_rules = self.__get_feed().fare_rules
         return self._fare_rules
+
+    @property
+    def shapes(self):
+        if self._shapes is None:
+            self._shapes = self.__get_feed().shapes
+        return self._shapes
+    
+    @property
+    def transfer(self):
+        if self._transfers is None:
+            self._transfers = self.__get_feed().transfers
+        return self._transfers
 
 
 gtfsHelper = GTFSHelper(

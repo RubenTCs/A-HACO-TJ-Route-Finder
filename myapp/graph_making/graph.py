@@ -39,8 +39,17 @@ def haversine(lon1, lat1, lon2, lat2):
     return 6371 * c  # in kilometers
 
 # -- Construct Graph --
-def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_min=10):
-    
+T_MAX = 360.0    # max travel time in minutes
+C_MAX = 35000.0  # max fare in IDR
+
+def construct_graph_with_costs(depart_date=None, depart_time=None, speed_kmh=25.0, avg_transfer_min=5.0):
+    """
+    Build the multigraph from GTFS data.
+
+    speed_kmh: average vehicle speed used to derive Waktuij from shape_dist_traveled.
+    avg_transfer_min: penalty time applied to transfer edges between routes at the same stop.
+    """
+
     if depart_date is None:
         depart_date = datetime.now().date()
     if depart_time is None:
@@ -56,6 +65,7 @@ def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_
         frequencies = gtfsHelper.frequencies.copy()
         fare_attributes = gtfsHelper.fare_attributes.copy()
         fare_rules = gtfsHelper.fare_rules.copy()
+        transfer = gtfsHelper.transfer.copy()
 
         # Map each route_id to its corridor/route_desc so transfer checks can compare service types.
         route_to_desc = {}
@@ -99,12 +109,12 @@ def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_
         start_seconds = frequencies["start_time"].apply(_time_to_seconds)
         end_seconds = frequencies["end_time"].apply(_time_to_seconds)
         
-        trip_ids_in_window = frequencies.loc[
+        trip_ids_in_time_window = frequencies.loc[
             (start_seconds <= depart_seconds) & (depart_seconds <= end_seconds),
             "trip_id"
         ].values
         
-        trips_active = trips_active_by_day[trips_active_by_day["trip_id"].isin(trip_ids_in_window)]
+        trips_active = trips_active_by_day[trips_active_by_day["trip_id"].isin(trip_ids_in_time_window)]
         
         # Merge stop_times with trips to get route info
         stop_times_full = stop_times.merge(
@@ -123,7 +133,7 @@ def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_
         # Sort by trip and stop_sequence
         stop_times_full = stop_times_full.sort_values(["trip_id", "stop_sequence"])
         
-        # Initialize MultiDiGraph
+        # Init Graph
         G = nx.MultiDiGraph()
         stop_to_routes = {}
         transfer_time_min = float(avg_transfer_min)
@@ -140,8 +150,7 @@ def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_
             route_id = trip_data.iloc[0]["route_id"]
             
             # Track which stops are on which routes
-            for _, row in trip_data.iterrows():
-                stop_name = row["stop_name"]
+            for stop_name in trip_data["stop_name"]:
                 stop_to_routes.setdefault(stop_name, set()).add(route_id)
             
             # Create edges between consecutive stops
@@ -152,41 +161,28 @@ def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_
                 node1 = (curr_stop["stop_name"], route_id)
                 node2 = (next_stop["stop_name"], route_id)
                 
-                # Calculate distance using haversine (Euclidean)
-                dist_km = haversine(
-                    curr_stop["stop_lon"], curr_stop["stop_lat"],
-                    next_stop["stop_lon"], next_stop["stop_lat"]
-                )
-                
-                # Calculate travel time from GTFS stop_times
-                try:
-                    arr_time = next_stop["arrival_time"]
-                    dep_time = curr_stop["departure_time"]
-                    
-                    travel_time_sec = _time_to_seconds(arr_time) - _time_to_seconds(dep_time)
-                    
-                    # Handle day rollover (if arrival wraps past midnight)
-                    if travel_time_sec < 0:
-                        travel_time_sec += 24 * 3600
-                    
-                    travel_time_min = travel_time_sec / 60
-                except:
-                    # Fallback: estimate from distance at 25 km/h if times are invalid
-                    travel_time_min = (dist_km / 25.0) * 60
-                
-                # Add bidirectional edges with route_id as key
+                # Distance from shape_dist_traveled
+                # fall back haversine if missing
+                dist_curr = curr_stop.get("shape_dist_traveled")
+                dist_next = next_stop.get("shape_dist_traveled")
+                if pd.notna(dist_curr) and pd.notna(dist_next) and float(dist_next) > float(dist_curr):
+                    dist_km = (float(dist_next) - float(dist_curr)) / 1000.0 # in meter to km
+                else:
+                    dist_km = haversine(
+                        curr_stop["stop_lon"], curr_stop["stop_lat"],
+                        next_stop["stop_lon"], next_stop["stop_lat"]
+                    )
+
+                # Travel time derived from distance and speed (Tabel 2.1 in proposal).
+                travel_time_min = (dist_km / speed_kmh) * 60
+
                 G.add_edge(node1, node2, key=route_id,
                           type="travel",
                           Waktuij=travel_time_min,
                           Biayaij=0,
                           Transitij=0,
-                          distance_km=dist_km)
-                
-                G.add_edge(node2, node1, key=route_id,
-                          type="travel",
-                          Waktuij=travel_time_min,
-                          Biayaij=0,
-                          Transitij=0,
+                          Waktuij_norm=travel_time_min / T_MAX,
+                          Biayaij_norm=0.0,
                           distance_km=dist_km)
         
         # Build transfer edges (between different routes at same stop, dan perpindahan moda kendaraan)
@@ -217,20 +213,24 @@ def construct_graph_with_costs(depart_date=None, depart_time=None, avg_transfer_
                         # Use unique transfer key
                         transfer_key = f"transfer_{routes_list[i]}_to_{routes_list[j]}"
                         
-                        # Add bidirectional transfer edges
+                        # Add transfer edge
                         G.add_edge(node1, node2, key=transfer_key,
                                   type="transfer",
                                   Waktuij=transfer_time_min,
                                   Biayaij=transfer_cost_ij,
                                   Transitij=1,
+                                  Waktuij_norm=transfer_time_min / T_MAX,
+                                  Biayaij_norm=transfer_cost_ij / C_MAX,
                                   distance_km=0)
-                        
+
                         transfer_key_rev = f"transfer_{routes_list[j]}_to_{routes_list[i]}"
                         G.add_edge(node2, node1, key=transfer_key_rev,
                                   type="transfer",
                                   Waktuij=transfer_time_min,
                                   Biayaij=transfer_cost_ji,
                                   Transitij=1,
+                                  Waktuij_norm=transfer_time_min / T_MAX,
+                                  Biayaij_norm=transfer_cost_ji / C_MAX,
                                   distance_km=0)
         
         print(f"Graph built successfully!")

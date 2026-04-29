@@ -1,71 +1,10 @@
 import gurobipy as gp
 import numpy as np
-
-def calculate_final_metrics(G, path, weights):
-    """
-    Calculate total time, distance, and transit count from a path.
-
-    Parameters:
-    -----------
-    G : nx.MultiDiGraph
-        Transport network graph
-    path : list
-        Path of nodes
-
-    Returns:
-    --------
-    dict with metrics (waktu_tempuh_menit, jarak_km, jumlah_transit)
-    """
-    total_dist = 0.0
-    total_time = 0.0  # in minutes
-    total_trans = 0
-    total_cost = 0.0
-
-    w_t_input = float(weights.get('waktu', 0))
-    w_c_input = float(weights.get('biaya', 0))
-    w_p_input = float(weights.get('transit', 0))
-
-    if not path or len(path) < 2:
-        return {"waktu_tempuh_menit": 0, "jarak_km": 0, "jumlah_transit": 0, "error": "Path tidak valid"}
-
-    for u, v in zip(path, path[1:]):
-        stop_u, corridor_u = u
-        stop_v, corridor_v = v
-
-        if not G.has_edge(u, v):
-            print(f"WARNING: Edge tidak ditemukan di path: {u} -> {v}")
-            continue
-
-        # MultiDiGraph: get_edge_data returns dict of {key: edge_data}
-        edge_data_dict = G.get_edge_data(u, v)
-
-        if isinstance(edge_data_dict, dict) and edge_data_dict:
-            # Choose edge with minimum Waktuij
-            edge_data = min(edge_data_dict.values(), key=lambda e: e.get('Waktuij', float('inf')))
-        else:
-            print(f"WARNING: No edge data found for {u} -> {v}")
-            continue
-
-        # Accumulate metrics
-        total_time += edge_data.get('Waktuij', 0)  # already in minutes
-        total_dist += edge_data.get('distance_km', 0)
-        total_cost += edge_data.get('Biayaij', 0)
-
-        # Count transit (only for 'transfer' type edges)
-        if edge_data.get('type') == 'transfer':
-            total_trans += 1
-
-    z_score = (w_t_input * total_time) + (w_c_input * total_cost) + (w_p_input * total_trans)
-
-    return {
-        "waktu_tempuh_menit": round(total_time, 1),
-        "jarak_km": round(total_dist, 2),
-        "total_biaya": round(total_cost, 0),
-        "jumlah_transit": total_trans,
-        "z_score": z_score
-    }
-
-
+from .utils import (
+    calculate_final_metrics,
+    build_detailed_journey,
+    build_path_coordinates
+)
 # -- Gurobi Solver --
 def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
     """
@@ -104,7 +43,7 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
     if not start_nodes or not end_nodes:
         return {"error": "Node asal atau tujuan tidak terhubung ke graf."}
 
-    # validasi weights
+    # Validate weights
     # Persamaan (2.5) w_t + w_c + w_p = 1 and (2.6) all weights are non-negative.
     w_t_input = float(weights.get('waktu', 0))
     w_c_input = float(weights.get('biaya', 0))
@@ -113,7 +52,7 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
     if min(w_t_input, w_c_input, w_p_input) < 0:
         return {"error": "Bobot tidak valid: semua bobot harus >= 0."}
 
-    if (w_t_input + w_c_input + w_p_input) != 1.0:
+    if abs((w_t_input + w_c_input + w_p_input) - 1.0) > 1e-6:
         return {"error": "Bobot tidak valid: w_t + w_c + w_p harus = 1."}
     
     try:
@@ -148,21 +87,21 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         model.addConstr(w_c == w_c_input, "fix_w_c")
         model.addConstr(w_p == w_p_input, "fix_w_p")
 
-        # (2.1) Objective: min sum((w_t*t_ijk + w_c*c_ijk + w_p*p_ijk) * x_ijk)
+        # (2.1) Objective: min sum((w_t*t_ijk_norm + w_c*c_ijk_norm + w_p*p_ijk) * x_ijk)
         obj_expr = gp.quicksum(
             (
-                w_t * G.get_edge_data(u, v, key).get('Waktuij', 0) +
-                w_c * G.get_edge_data(u, v, key).get('Biayaij', 0) +
+                w_t * G.get_edge_data(u, v, key).get('Waktuij_norm', 0) +
+                w_c * G.get_edge_data(u, v, key).get('Biayaij_norm', 0) +
                 w_p * G.get_edge_data(u, v, key).get('Transitij', 0)
             ) * x[(u, v, key)]
             for u, v, key in G.edges(keys=True)
         )
         model.setObjective(obj_expr, gp.GRB.MINIMIZE)
 
-        # (2.2): Exactly one arc leaves super source S.
+        # (2.2): Add constraint hanya satu arc keluar dari S (source).
         model.addConstr(gp.quicksum(x_source[s] for s in start_nodes) == 1, "source")
 
-        # (2.3): Exactly one arc enters super sink D.
+        # (2.3): Add constraint hanya satu arc masuk ke D (destination) / sink
         model.addConstr(gp.quicksum(x_sink[e] for e in end_nodes) == 1, "sink")
 
         # (2.4): Flow conservation for all transit nodes.
@@ -181,7 +120,9 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
                 for key in G[pred][node].keys()
             )
             
-            # Balance in extended network with S and D connectors.
+            # Add constraint 
+            # Aliran masuk - Aliran keluar = 0
+            # Aliran masuk == aliran keluar
             model.addConstr(
                 in_flow + x_source.get(node, 0) == out_flow + x_sink.get(node, 0),
                 f"balance_{node}"
@@ -189,18 +130,7 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
 
         # Solve
         model.optimize()
-        
-        # Check solution status
-        if model.status != gp.GRB.OPTIMAL:
-            status_names = {
-                gp.GRB.OPTIMAL: "Optimal",
-                gp.GRB.SUBOPTIMAL: "Suboptimal",
-                gp.GRB.INFEASIBLE: "Infeasible",
-                gp.GRB.UNBOUNDED: "Unbounded",
-                gp.GRB.INF_OR_UNBD: "Inf or Unbd",
-            }
-            return {"error": f"Solusi tidak optimal: {status_names.get(model.status, 'Unknown')}"}
-        
+
         # Extract active edges
         active_edges = [(u, v, key) for u, v, key in G.edges(keys=True) 
                        if x[(u, v, key)].X == 1]
@@ -236,9 +166,14 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         if "error" in final_metrics:
             return final_metrics
         
+        detailed_journey = build_detailed_journey(G, path)
+
+        halte_coordinates = build_path_coordinates(detailed_journey, path)
+        
         # Return result
         return {
-            "path": path,
+            "detailed_journey": detailed_journey,
+            "path_coordinates": halte_coordinates,
             "jarak_km": final_metrics.get("jarak_km", 0),
             "waktu_tempuh_menit": final_metrics.get("waktu_tempuh_menit", 0),
             "total_biaya": final_metrics.get("total_biaya", 0),

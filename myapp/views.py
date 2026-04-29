@@ -1,14 +1,18 @@
 import os
+import json
 from .forms import RouteForm
 from .solvers.gurobi import (
     find_route_with_gurobi
+)
+from .solvers.astar import (
+    find_route_with_astar
 )
 from .graph_making.graph import (
     construct_graph_with_costs,
 )
 from .gtfs_helper import gtfsHelper
 from datetime import datetime, time
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
@@ -36,8 +40,10 @@ def getHalteList(request):
     return JsonResponse(filtered, safe=False)
 
 def index(request):
-    hasil = {}
-    form = None
+    # Read-and-clear flash-like data for the GET after redirect.
+    hasil = request.session.pop("hasil", {})
+    form_initial = request.session.pop("form_data", None)
+    form = RouteForm(initial=form_initial) if form_initial else RouteForm()
     
     if request.method == "POST":
         form = RouteForm(request.POST)
@@ -50,12 +56,9 @@ def index(request):
             solver_method = form.cleaned_data["metode_solver"]
 
             depart_time = form.cleaned_data["jam_berangkat"]
-            depart_time_str = depart_time.strftime("%H:%M")
 
             depart_date = form.cleaned_data["tanggal_berangkat"]
-            depart_date_str = depart_date.strftime("%Y-%m-%d")
             
-            # TODO: Manual Error handling, check if valid or not
             # Error Handling
             if halte_asal == halte_tujuan:
                 hasil = {"error": f"Halte Asal dan Tujuan sama (`{halte_asal}'), ganti salah satu"}
@@ -123,24 +126,50 @@ def index(request):
                         preferensi_label = "Seimbang"
                         weights_dict = {"waktu": 0.4, "biaya": 0.3, "transit": 0.3}
 
-                    data_directory = os.path.join(settings.BASE_DIR, "myapp", "static", "data")
-
                     print("--- Start Pencarian Rute ---")
 
                     print(f"INFO: Building graph with speed={param_speed}")
-                    G, stop_to_routes = construct_graph_with_costs(depart_date, depart_time, avg_transfer_min=param_speed)
+                    G, stop_to_routes = construct_graph_with_costs(
+                        depart_date, depart_time, speed_kmh=param_speed
+                    )
 
-                    if solver_method == "MILP":
-                        hasil_route = find_route_with_gurobi(G, stop_to_routes, start_stop=halte_asal, end_stop=halte_tujuan, 
-                                                             weights=weights_dict)
-                    elif solver_method == "astar":
-                        #TODO: Make A-star Algorithm
-                        hasil_route = None # find route with astar
-                    elif solver_method == "HACO":   
-                        #TODO: MAKE HACO Algorithm
-                        hasil_rotue = None # find route with haco
+                    if G is None:
+                        hasil = {"error": "Gagal membangun graf"}
+                    else:
+                        if solver_method == "MILP":
+                            hasil_route = find_route_with_gurobi(G, stop_to_routes,
+                                                                 start_stop=halte_asal,
+                                                                 end_stop=halte_tujuan,
+                                                                 weights=weights_dict)
+                        elif solver_method == "ASTAR":
+                            hasil_route = find_route_with_astar(G, stop_to_routes,
+                                                                start_stop=halte_asal,
+                                                                end_stop=halte_tujuan,
+                                                                weights=weights_dict,
+                                                                speed_kmh=param_speed)
+                        elif solver_method == "HACO":
+                            #TODO: MAKE HACO Algorithm
+                            hasil_route = None # find route with haco
+                        else:
+                            hasil_route = {"error": f"Metode solver tidak dikenal: {solver_method}"}
 
-                    print(hasil_route)
+                        if hasil_route is None:
+                            hasil = {"error": f"Solver '{solver_method}' belum diimplementasikan."}
+                        elif "error" in hasil_route:
+                            hasil = {"error": hasil_route["error"]}
+                        else:
+                            hasil = {
+                                "detailed_journey": hasil_route.get("detailed_journey", []),
+                                "path_coordinates": hasil_route.get("path_coordinates", []),
+                                "jarak_km": hasil_route.get("jarak_km", 0),
+                                "waktu_tempuh_menit": hasil_route.get("waktu_tempuh_menit", 0),
+                                "total_biaya": hasil_route.get("total_biaya", 0),
+                                "jumlah_transit": hasil_route.get("jumlah_transit", 0),
+                                "z_score": hasil_route.get("z_score", 0),
+                                "preferensi_label": preferensi_label,
+                                "mode_waktu": mode_waktu,
+                            }
+                        print(hasil_route)
 
                 except Exception as e:
                     hasil = {"error": f"Internal Error: {str(e)}"}
@@ -151,12 +180,25 @@ def index(request):
             hasil = {"error": "Input tidak valid. Cek ulang form."}
             print("error: Input tidak valid. Cek ulang form.")
 
+        # redirect after POST so refresh does not rerun route finding.
+        request.session["hasil"] = hasil
+        request.session["form_data"] = {
+            "halte_asal": request.POST.get("halte_asal", ""),
+            "halte_tujuan": request.POST.get("halte_tujuan", ""),
+            "tanggal_berangkat": request.POST.get("tanggal_berangkat", ""),
+            "jam_berangkat": request.POST.get("jam_berangkat", ""),
+            "preferensi": request.POST.get("preferensi", ""),
+            "metode_solver": request.POST.get("metode_solver", ""),
+        }
+        return redirect("index")
 
+    
     return render(
         request,
         "index.html",
         {
             "form": form,
-            "hasil": hasil
+            "hasil": hasil,
+            "hasil_json": json.dumps(hasil),
         }
     )

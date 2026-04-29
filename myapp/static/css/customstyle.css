@@ -36,22 +36,8 @@
 
 .route-visual-card {
     min-height: 100%;
-    background: #a8ff9a;
     color: #111;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04) inset;
-}
-
-.route-hero-title {
-    font-size: clamp(2rem, 3vw, 3rem);
-    font-weight: 500;
-    letter-spacing: 0.01em;
-}
-
-.route-placeholder-copy {
-    max-width: 28rem;
-    margin-inline: auto;
-    font-size: 1rem;
-    opacity: 0.8;
 }
 
 .route-results-card {

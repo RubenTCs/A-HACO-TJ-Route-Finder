@@ -43,7 +43,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function handleInput(event) {
         clearTimeout(timeout);
         const query = event.target.value;
-        timeout = setTimeout(() => fetchHalte(query, event.target), 300);
+        timeout = setTimeout(() => fetchHalte(query, event.target), 200);
     }
 
     halteAwalInput.addEventListener("input", handleInput);
