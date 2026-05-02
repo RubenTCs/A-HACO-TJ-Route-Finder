@@ -11,6 +11,113 @@ def haversine(lon1, lat1, lon2, lat2):
     return 6371 * 2 * asin(sqrt(a))
 
 
+def build_route_shape_map():
+    """Build {route_id: [{shape_id, stop_dist: {stop_name: dist}}]} from GTFS trips/stop_times.
+
+    Multiple entries per route cover different directions (each has a distinct shape_id).
+    One representative trip per (route_id, shape_id) pair is enough because all trips
+    sharing the same shape have identical shape_dist_traveled values at each stop.
+    """
+    trips_df = gtfsHelper.trips
+    stop_times_df = gtfsHelper.stop_times
+    stops_df = gtfsHelper.stops
+
+    if trips_df is None or stop_times_df is None or stops_df is None:
+        return {}
+    if 'shape_id' not in trips_df.columns:
+        return {}
+
+    trips_with_shape = trips_df[trips_df['shape_id'].notna()][['route_id', 'trip_id', 'shape_id']]
+    if trips_with_shape.empty:
+        return {}
+
+    required_st = {'trip_id', 'stop_id', 'shape_dist_traveled'}
+    if not required_st.issubset(stop_times_df.columns) or 'stop_name' not in stops_df.columns:
+        return {}
+
+    st_named = (
+        stop_times_df[['trip_id', 'stop_id', 'stop_sequence', 'shape_dist_traveled']]
+        .merge(stops_df[['stop_id', 'stop_name']], on='stop_id', how='inner')
+    )
+
+    result = {}
+    for route_id, group in trips_with_shape.groupby('route_id'):
+        entries = []
+        seen_shapes = set()
+        for _, row in group.iterrows():
+            shape_id = str(row['shape_id'])
+            if shape_id in seen_shapes:
+                continue
+            seen_shapes.add(shape_id)
+
+            trip_stops = (
+                st_named[st_named['trip_id'] == row['trip_id']]
+                .dropna(subset=['shape_dist_traveled'])
+                .sort_values('stop_sequence')
+            )
+            if trip_stops.empty:
+                continue
+
+            stop_dist = {}
+            for _, sr in trip_stops.iterrows():
+                name = str(sr['stop_name'])
+                if name not in stop_dist:
+                    stop_dist[name] = float(sr['shape_dist_traveled'])
+
+            entries.append({'shape_id': shape_id, 'stop_dist': stop_dist})
+
+        if entries:
+            result[str(route_id)] = entries
+
+    return result
+
+
+def _get_shape_segment_coords(shapes_df, shape_id, dist_from, dist_to):
+    """Return [[lat, lon], ...] shape points between dist_from and dist_to for shape_id."""
+    lo, hi = min(dist_from, dist_to), max(dist_from, dist_to)
+    seg = shapes_df[
+        (shapes_df['shape_id'] == shape_id) &
+        (shapes_df['shape_dist_traveled'] >= lo) &
+        (shapes_df['shape_dist_traveled'] <= hi)
+    ].sort_values('shape_pt_sequence')
+
+    if dist_from > dist_to:
+        seg = seg.iloc[::-1]
+
+    return [
+        [float(r['shape_pt_lat']), float(r['shape_pt_lon'])]
+        for _, r in seg.iterrows()
+    ]
+
+
+def _find_shape_for_segment(route_id, from_stop, to_stop, route_shape_map):
+    """Return (shape_id, dist_from, dist_to) for a travel segment, or (None, None, None)."""
+    for entry in route_shape_map.get(str(route_id), []):
+        stop_dist = entry['stop_dist']
+        dist_from = stop_dist.get(from_stop)
+        dist_to = stop_dist.get(to_stop)
+        if dist_from is not None and dist_to is not None:
+            return entry['shape_id'], dist_from, dist_to
+    return None, None, None
+
+
+def build_route_color_map():
+    """Return {route_id: '#RRGGBB'} from GTFS routes, defaulting to blue."""
+    routes_df = gtfsHelper.routes
+    DEFAULT = "#2563eb"
+    if routes_df is None or 'route_color' not in routes_df.columns or 'route_id' not in routes_df.columns:
+        return {}
+    result = {}
+    for _, row in routes_df[['route_id', 'route_color']].dropna(subset=['route_id']).iterrows():
+        color_val = row.get('route_color')
+        s = str(color_val).strip() if color_val is not None else ''
+        if s and s.lower() not in ('nan', 'none', ''):
+            result[str(row['route_id'])] = '#' + s.lstrip('#')
+        else:
+            result[str(row['route_id'])] = DEFAULT
+    return result
+
+
 def build_coord_map():
     """Return {stop_name: (lat, lon)} for all stops in the GTFS feed."""
     coord_map = {}
@@ -115,8 +222,14 @@ def build_detailed_journey(G, path):
     return detailed_route_steps
 
 def build_path_coordinates(detailed_journey, path):
-    """Build path coordinates from GTFS stop coordinates and journey steps."""
+    """Build path coordinates from GTFS shapes/stops and journey steps.
+
+    Returns a dict:
+        path_coordinates  – flat [[lat,lon],...] for the whole route (fallback use)
+        path_segments     – [{coords, color, koridor},...] one entry per travel step
+    """
     path_coordinates = []
+    path_segments = []
 
     def to_coord_list(coord_value):
         # Normalize to [lat, lon] float list; return None for invalid input.
@@ -145,10 +258,18 @@ def build_path_coordinates(detailed_journey, path):
         step["coords"] = to_coord_list(transfer_coord)
 
     try:
-        # Step 1: Load stop coordinates once.
+        # Step 1: Load stop coordinates and GTFS shape data once.
         print("INFO (PathCoords): Building stop coordinate map...")
         coordinates_map = build_coord_map()
         print(f"INFO (PathCoords): Loaded {len(coordinates_map)} stop coordinates")
+
+        print("INFO (PathCoords): Building route shape map...")
+        route_shape_map = build_route_shape_map()
+        shapes_df = gtfsHelper.shapes
+        use_shapes = shapes_df is not None and not shapes_df.empty and bool(route_shape_map)
+        print(f"INFO (PathCoords): Shape data available: {use_shapes} ({len(route_shape_map)} routes)")
+
+        route_color_map = build_route_color_map()
 
         journey_steps = detailed_journey if isinstance(detailed_journey, list) else []
 
@@ -160,16 +281,61 @@ def build_path_coordinates(detailed_journey, path):
             attach_step_coordinates(step, coordinates_map)
 
             if step.get("type") == "travel":
-                # Step 3a: Build travel polyline by ordered stops (from -> via -> to).
-                travel_stop_names = [step.get("from")] + list(step.get("via") or []) + [step.get("to")]
-                for stop_name in travel_stop_names:
-                    if not stop_name:
-                        continue
-                    append_unique_coord(to_coord_list(coordinates_map.get(stop_name)))
+                from_stop = step.get("from")
+                to_stop = step.get("to")
+                via_stops = list(step.get("via") or [])
+                route_id = step.get("koridor")
+                color = route_color_map.get(str(route_id), "#2563eb")
+
+                step_coords = []
+                shape_used = False
+                if use_shapes and route_id:
+                    # Step 3a: Use GTFS shape geometry for accurate route geometry.
+                    all_stops = [from_stop] + via_stops + [to_stop]
+                    segment_ok = True
+
+                    for seg_from, seg_to in zip(all_stops, all_stops[1:]):
+                        if not seg_from or not seg_to:
+                            segment_ok = False
+                            break
+                        shape_id, dist_f, dist_t = _find_shape_for_segment(
+                            route_id, seg_from, seg_to, route_shape_map
+                        )
+                        if shape_id is None:
+                            segment_ok = False
+                            break
+                        step_coords.extend(
+                            _get_shape_segment_coords(shapes_df, shape_id, dist_f, dist_t)
+                        )
+
+                    if segment_ok and step_coords:
+                        shape_used = True
+
+                if not shape_used:
+                    # Step 3b: Fallback — connect stop coordinates with straight lines.
+                    for stop_name in [from_stop] + via_stops + [to_stop]:
+                        if not stop_name:
+                            continue
+                        c = to_coord_list(coordinates_map.get(stop_name))
+                        if c:
+                            step_coords.append(c)
+
+                valid_step_coords = [
+                    c for c in step_coords
+                    if isinstance(c, list) and len(c) == 2
+                ]
+                if valid_step_coords:
+                    path_segments.append({
+                        "coords": valid_step_coords,
+                        "color": color,
+                        "koridor": route_id,
+                    })
+                    for coord in valid_step_coords:
+                        append_unique_coord(coord)
                 continue
 
             if step.get("type") == "transfer":
-                # Step 3b: Transfer contributes a single stop coordinate.
+                # Step 3c: Transfer contributes a single stop coordinate.
                 append_unique_coord(step.get("coords"))
 
         if not path_coordinates and isinstance(path, list):
@@ -193,11 +359,13 @@ def build_path_coordinates(detailed_journey, path):
     except Exception as e:
         print(f"ERROR (PathCoords): {type(e).__name__} - {e}")
         path_coordinates = []
+        path_segments = []
 
-    return [
-        coord for coord in path_coordinates
-        if isinstance(coord, list) and len(coord) == 2 and all(isinstance(value, (int, float)) for value in coord)
+    valid_coords = [
+        c for c in path_coordinates
+        if isinstance(c, list) and len(c) == 2 and all(isinstance(v, (int, float)) for v in c)
     ]
+    return {"path_coordinates": valid_coords, "path_segments": path_segments}
 
 def calculate_final_metrics(G, path, weights):
     """

@@ -7,6 +7,9 @@ from .solvers.gurobi import (
 from .solvers.astar import (
     find_route_with_astar
 )
+from .solvers.haco import (
+    find_route_with_haco
+)
 from .graph_making.graph import (
     construct_graph_with_costs,
 )
@@ -148,8 +151,10 @@ def index(request):
                                                                 weights=weights_dict,
                                                                 speed_kmh=param_speed)
                         elif solver_method == "HACO":
-                            #TODO: MAKE HACO Algorithm
-                            hasil_route = None # find route with haco
+                            hasil_route = find_route_with_haco(G, stop_to_routes,
+                                                               start_stop=halte_asal,
+                                                               end_stop=halte_tujuan,
+                                                               weights=weights_dict)
                         else:
                             hasil_route = {"error": f"Metode solver tidak dikenal: {solver_method}"}
 
@@ -161,6 +166,7 @@ def index(request):
                             hasil = {
                                 "detailed_journey": hasil_route.get("detailed_journey", []),
                                 "path_coordinates": hasil_route.get("path_coordinates", []),
+                                "path_segments": hasil_route.get("path_segments", []),
                                 "jarak_km": hasil_route.get("jarak_km", 0),
                                 "waktu_tempuh_menit": hasil_route.get("waktu_tempuh_menit", 0),
                                 "total_biaya": hasil_route.get("total_biaya", 0),

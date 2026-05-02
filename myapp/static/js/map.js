@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const routeData = typeof hasil !== "undefined" && hasil ? hasil : {};
     const detailedJourney = Array.isArray(routeData.detailed_journey) ? routeData.detailed_journey : [];
     const pathCoordinates = Array.isArray(routeData.path_coordinates) ? routeData.path_coordinates : [];
+    const pathSegments = Array.isArray(routeData.path_segments) ? routeData.path_segments : [];
 
     const isCoord = (coord) => Array.isArray(coord) && coord.length === 2;
 
@@ -45,29 +46,35 @@ document.addEventListener("DOMContentLoaded", function () {
         popupAnchor: [0, -7],
     });
 
-    const routeLine = L.polyline([], { color: "#2563eb", weight: 6, opacity: 0.9 }).addTo(map);
     const bounds = [];
 
     const addMarker = (coord, icon, popupHtml) => {
-        if (!isCoord(coord)) {
-            return;
-        }
-
+        if (!isCoord(coord)) return;
         const latlon = [coord[0], coord[1]];
-        L.marker(latlon, { icon }).addTo(map).bindPopup(popupHtml);
+        L.marker(latlon, { icon })
+            .addTo(map)
+            .bindPopup(popupHtml);
         bounds.push(latlon);
     };
 
-    const polylinePoints = pathCoordinates
-        .filter(isCoord)
-        .map((coord) => [coord[0], coord[1]]);
-
-    // ADD to bounds
-    if (polylinePoints.length > 0) {
-        polylinePoints.forEach((point) => {
-            routeLine.addLatLng(point);
+    if (pathSegments.length > 0) {
+        // Draw one colored polyline per route segment.
+        pathSegments.forEach((seg) => {
+            const pts = (seg.coords || []).filter(isCoord).map((c) => [c[0], c[1]]);
+            if (pts.length === 0) return;
+            L.polyline(pts, { color: seg.color || "#2563eb", weight: 6, opacity: 0.9 })
+            .addTo(map)
+            .bindPopup(`<b>Koridor ${seg.koridor}</b>`);
+            bounds.push(...pts);
         });
-        bounds.push(...polylinePoints);
+    } else {
+        // Fallback: single blue polyline from flat path_coordinates.
+        const pts = pathCoordinates.filter(isCoord).map((c) => [c[0], c[1]]);
+        if (pts.length > 0) {
+            L.polyline(pts, { color: "#2563eb", weight: 6, opacity: 0.9 })
+            .addTo(map);
+            bounds.push(...pts);
+        }
     }
 
     const travelSteps = detailedJourney.filter((step) => step.type === "travel");

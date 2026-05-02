@@ -168,12 +168,13 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         
         detailed_journey = build_detailed_journey(G, path)
 
-        halte_coordinates = build_path_coordinates(detailed_journey, path)
-        
+        coord_result = build_path_coordinates(detailed_journey, path)
+
         # Return result
         return {
             "detailed_journey": detailed_journey,
-            "path_coordinates": halte_coordinates,
+            "path_coordinates": coord_result["path_coordinates"],
+            "path_segments": coord_result["path_segments"],
             "jarak_km": final_metrics.get("jarak_km", 0),
             "waktu_tempuh_menit": final_metrics.get("waktu_tempuh_menit", 0),
             "total_biaya": final_metrics.get("total_biaya", 0),
