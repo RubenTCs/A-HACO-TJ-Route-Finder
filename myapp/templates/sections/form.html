@@ -1,131 +1,124 @@
-<div class="col-12 {% if hasil %}col-lg-4{% else %}col-lg-4 mx-auto{% endif %}">
-    <div class="card form-container-pink h-100 route-form-card p-4 rounded-4">
-        {% comment %} TODO: Handle to backend {% endcomment %}
-        <form action="" method="post" class="h-100 d-flex flex-column">
-            {% csrf_token %}
+{# Sidebar form — Option A (Refined Classic) #}
+<aside class="sidebar">
+    <form action="" method="post" id="routeForm" class="col gap-14">
+        {% csrf_token %}
 
-            <!-- Halte Awal -->
-            <div class="mb-3">
-                <label
-                    for="halteAwal"
-                    class="form-label fw-semibold text-dark-gray"
-                >
-                    Halte awal
-                </label>
-                <input
-                    type="text"
-                    class="form-control border form-input-blue"
-                    id="halteAwal"
-                    name="halte_asal"
-                    placeholder="Blok M"
-                    list="halteList"
-                    required
-                />
+        <div class="col gap-12">
+            <div class="field">
+                <span class="label">Halte awal</span>
+                <div class="input">
+                    <span class="dot start"></span>
+                    <input
+                        type="text"
+                        id="halteAwal"
+                        name="halte_asal"
+                        placeholder="Blok M"
+                        list="halteList"
+                        value="{{ form.halte_asal.value|default_if_none:'' }}"
+                        autocomplete="off"
+                        required
+                    />
+                </div>
             </div>
 
-            <!-- Halte Tujuan -->
-            <div class="mb-3">
-                <label
-                    for="halteTujuan"
-                    class="form-label fw-semibold text-dark-gray"
-                >
-                    Halte Tujuan
-                </label>
-                <input
-                    type="text"
-                    class="form-control border form-input-blue"
-                    id="halteTujuan"
-                    name="halte_tujuan"
-                    placeholder="Bundaran HI Astra"
-                    list="halteList"
-                    required
-                />
+            <div class="field">
+                <span class="label">Halte tujuan</span>
+                <div class="input">
+                    <span class="dot end"></span>
+                    <input
+                        type="text"
+                        id="halteTujuan"
+                        name="halte_tujuan"
+                        placeholder="Bundaran HI Astra"
+                        list="halteList"
+                        value="{{ form.halte_tujuan.value|default_if_none:'' }}"
+                        autocomplete="off"
+                        required
+                    />
+                </div>
             </div>
+        </div>
 
-            <!-- Hari/Tanggal -->
-            <div class="mb-3">
-                <label
-                    for="tanggalBerangkat"
-                    class="form-label fw-semibold text-dark-gray"
-                >
-                    Hari/Tanggal
-                </label>
-                <input
-                    type="date"
-                    class="form-control border form-input-blue"
-                    id="tanggalBerangkat"
-                    name="tanggal_berangkat"
-                    value="{% now 'Y-m-d' %}"
-                    required
-                />
+        <div class="date-time-grid">
+            <div class="field">
+                <span class="label">Tanggal</span>
+                <div class="input">
+                    <input
+                        type="date"
+                        id="tanggalBerangkat"
+                        name="tanggal_berangkat"
+                        value="{% if form.tanggal_berangkat.value %}{{ form.tanggal_berangkat.value }}{% else %}{% now 'Y-m-d' %}{% endif %}"
+                        required
+                    />
+                </div>
             </div>
-
-            <!-- Jam -->
-            <div class="mb-3">
-                <label
-                    for="jamBerangkat"
-                    class="form-label fw-semibold text-dark-gray"
-                >
-                    Jam
-                </label>
-                <input
-                    type="time"
-                    class="form-control border form-input-blue"
-                    id="jamBerangkat"
-                    name="jam_berangkat"
-                    value="{% now 'H:i' %}"
-                    required
-                />
+            <div class="field">
+                <span class="label">Jam</span>
+                <div class="input">
+                    <input
+                        type="time"
+                        id="jamBerangkat"
+                        name="jam_berangkat"
+                        value="{% if form.jam_berangkat.value %}{{ form.jam_berangkat.value }}{% else %}{% now 'H:i' %}{% endif %}"
+                        required
+                    />
+                </div>
             </div>
+        </div>
 
-            <!-- Preferensi Rute -->
-            <div class="mb-3">
-                <label
-                    for="preferensiRute"
-                    class="form-label fw-semibold text-dark-gray"
-                >
-                    Preferensi rute
-                </label>
-                <select
-                    class="form-select border form-input-blue"
-                    id="preferensiRute"
-                    name="preferensi"
-                    required
-                >
-                    <option value="murah" selected>Paling murah</option>
-                    <option value="cepat">Paling cepat</option>
-                    <option value="min_transit">Paling sedikit transit</option>
-                    <option value="seimbang">Setimbang</option>
+        <div class="field">
+            <span class="label">Preferensi rute</span>
+            <div class="input select-input">
+                <select name="preferensi" id="preferensiSelect" required>
+                    {% with sel=form.preferensi.value|default:'murah' %}
+                    <option value="seimbang"   {% if sel == 'seimbang' %}selected{% endif %}>Seimbang</option>
+                    <option value="murah"      {% if sel == 'murah' %}selected{% endif %}>Paling murah</option>
+                    <option value="cepat"      {% if sel == 'cepat' %}selected{% endif %}>Paling cepat</option>
+                    <option value="min_transit"{% if sel == 'min_transit' %}selected{% endif %}>Paling sedikit transit</option>
+                    {% endwith %}
                 </select>
             </div>
+        </div>
 
-            <!-- Metode Solver -->
-            <div class="mb-4">
-                <label
-                    for="metode"
-                    class="form-label fw-semibold text-dark-gray"
-                >
-                    Metode Solver
-                </label>
-                <select
-                    class="form-select border form-input-blue"
-                    id="metode"
-                    name="metode_solver"
-                    required
-                >
-                    <option value="MILP" selected>MILP</option>
-                    <option value="HACO">HACO</option>
-                    <option value="ASTAR">A*</option>
+        <div class="field">
+            <span class="label">Metode solver</span>
+            <div class="input select-input">
+                <select name="metode_solver" id="metodeSolverSelect" required>
+                    {% with sel=form.metode_solver.value|default:'HACO' %}
+                    <option value="MILP" {% if sel == 'MILP' %}selected{% endif %}>MILP</option>
+                    <option value="ASTAR"{% if sel == 'ASTAR' %}selected{% endif %}>A*</option>
+                    <option value="HACO" {% if sel == 'HACO' %}selected{% endif %}>HACO</option>
+                    {% endwith %}
                 </select>
             </div>
+        </div>
 
-            <!-- Button -->
-            <div class="d-grid mt-auto">
-                <button type="submit" class="btn btn-lg btn-cyan fw-semibold">
-                    Cari Rute
-                </button>
+        <button type="submit" id="submitBtn" class="btn primary" style="margin-top:6px;">
+            <span class="btn-spinner" aria-hidden="true"></span>
+            <span class="btn-label">Cari rute &nbsp;&rarr;</span>
+        </button>
+
+        <div id="solverStatus" class="solver-status" hidden>
+            <span class="dot-pulse" aria-hidden="true"></span>
+            <span class="solver-status-text">Mencari rute&hellip;</span>
+        </div>
+
+        {% if hasil and hasil.error %}
+            <div class="errbar" role="alert">
+                <div class="ico">!</div>
+                <div style="min-width:0;">
+                    <div class="ttl">Tidak bisa mencari rute</div>
+                    <div class="msg">{{ hasil.error }}</div>
+                </div>
             </div>
-        </form>
-        <datalist id="halteList"></datalist>
-    </div>
-</div>
+        {% endif %}
+
+        {% if hasil and hasil.detailed_journey %}
+            <div class="divider"></div>
+            <div class="sidebar-meta">
+                <div>Mode waktu: <b>{{ hasil.mode_waktu }}</b></div>
+                <div>Kecepatan asumsi: <b>{{ hasil.param_speed }} km/h</b></div>
+            </div>
+        {% endif %}
+    </form>
+</aside>

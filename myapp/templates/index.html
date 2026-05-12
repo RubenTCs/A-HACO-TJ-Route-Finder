@@ -1,41 +1,58 @@
-{% extends 'base.html' %} 
-{% load static %} 
-{% block content %}
+{% extends 'base.html' %}
+{% load static %}
 
-<div class="route-layout">
-    <div class="row g-4 align-items-stretch">
-        {% include 'sections/form.html' %} 
-        {% if hasil %} 
-        {% include 'sections/visual_map.html' %} 
-        {% endif %}
+{% block content %}
+<div class="opt">
+    <div class="topbar">
+        <div class="brand">
+            <div class="brand-mark">TJ</div>
+            <div>
+                <div class="brand-name">Transjakarta &middot; Route Finder</div>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            <a href="{% url 'log' %}" class="nav-btn">Log &rarr;</a>
+        </div>
     </div>
 
-    {% if hasil %} 
-    {% include 'sections/results.html' %} 
-    {% endif %}
+    <div class="page-shell">
+        {% include 'sections/form.html' %}
+
+        <section class="main-pane">
+            {% include 'sections/visual_map.html' %}
+
+            {% if hasil and hasil.detailed_journey %}
+                {% include 'sections/results.html' %}
+            {% endif %}
+        </section>
+    </div>
 </div>
 
-{% block scripts %} 
-{% if hasil_json %}
-<script id="hasilData" type="application/json">
-    {{ hasil_json|safe }}
-</script>
+<datalist id="halteList"></datalist>
+{% endblock %}
+
+{% block scripts %}
+{% if hasil and hasil.detailed_journey %}
+{{ hasil|json_script:"hasilData" }}
 {% endif %}
 
 <script>
-    let hasil = {};
+    // Ubah hasil JSON menjadi objek JavaScript
+    var hasil = {};
     try {
-        const hasilEl = document.getElementById("hasilData");
+        var hasilEl = document.getElementById("hasilData");
         if (hasilEl) hasil = JSON.parse(hasilEl.textContent);
     } catch (e) {
         console.error("Gagal parsing hasil JSON:", e);
     }
-    const pathCoords = hasil.path_coords || [];
-    console.log("✅ hasil dari Django:", hasil);
+    window.hasil = hasil;
+    var pathCoords = hasil.path_coords || [];
+    console.log("hasil dari Django:", hasil);
 </script>
 
 <script src="{% static 'js/form.js' %}"></script>
+{% if hasil and hasil.detailed_journey %}
 <script src="{% static 'js/map.js' %}"></script>
-
-{% endblock %} 
+<script src="{% static 'js/results.js' %}"></script>
+{% endif %}
 {% endblock %}

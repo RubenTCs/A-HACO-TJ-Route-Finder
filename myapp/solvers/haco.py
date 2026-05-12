@@ -1,136 +1,257 @@
 import random
+from time import perf_counter
 import numpy as np
+
 from .utils import (
     calculate_final_metrics,
     build_detailed_journey,
     build_path_coordinates,
+    get_boarding_fare,
+)
+from ..constants import (
+    HACO_N_ANTS,
+    HACO_MAX_ITER,
+    HACO_ALPHA,
+    HACO_BETA,
+    HACO_RHO,
+    HACO_TAU_0,
+    HACO_MAX_NO_IMPROVE_ITER,
+    HACO_TABU_SIZE,
 )
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+# ==========================================================
+# region Cost / probability primitives
+# ==========================================================
 
 def _edge_cost(edge_data, w_t, w_c, w_p):
     return (
         w_t * edge_data.get('Waktuij_norm', 0) +
         w_c * edge_data.get('Biayaij_norm', 0) +
-        w_p * edge_data.get('Transitij', 0)
+        w_p * edge_data.get('Transitij_norm', 0)
     )
 
 
+def _best_edge_key(edict, w_t, w_c, w_p):
+    """Pick the cheapest parallel edge between two nodes."""
+    return min(edict, key=lambda k: _edge_cost(edict[k], w_t, w_c, w_p))
+
+
 def _path_z(G, path, w_t, w_c, w_p):
-    """Compute the objective Z for a given path (eq 2.1 using normalized values)."""
-    z = 0.0
+    """Objective Z for a path (eq 2.1, normalized)."""
+    if not path:
+        return 0.0
+    # Boarding fare for first leg travel edges have Biayaij_norm=0,
+    # so without this paths starting on different fare classes look equal.
+    _, boarding_norm = get_boarding_fare(G, path[0])
+    z = w_c * boarding_norm
     for u, v in zip(path, path[1:]):
         edict = G.get_edge_data(u, v)
-        if not edict:
-            continue
-        best = min(edict.values(), key=lambda e: _edge_cost(e, w_t, w_c, w_p))
-        z += _edge_cost(best, w_t, w_c, w_p)
+        if edict:
+            best = min(edict.values(), key=lambda e: _edge_cost(e, w_t, w_c, w_p))
+            z += _edge_cost(best, w_t, w_c, w_p)
     return z
 
 
 def _roulette(probs):
-    """Roulette-wheel selection; returns index. Falls back to uniform if total <= 0."""
+    """Roulette-wheel selection; uniform fallback when total <= 0."""
     total = sum(probs)
     if total <= 0:
         return random.randrange(len(probs))
     r = random.uniform(0, total)
-    cumulative = 0.0
+    cum = 0.0
     for i, p in enumerate(probs):
-        cumulative += p
-        if r <= cumulative:
+        cum += p
+        if r <= cum:
             return i
     return len(probs) - 1
 
 
-def _grow_path(G, start_node, end_nodes_set, tau, eta, alpha, beta, tau_0,
-               w_t, w_c, w_p, max_steps, seed_path=None):
-    """
-    Construct a path toward end_nodes_set using pheromone + heuristic guidance.
+# ==========================================================
+# Path construction (one ant)
+# ==========================================================
 
-    Tabu: visited_nodes tracks exact (stop, route) tuples already on the path.
-    Blocking by stop name is intentionally avoided — (Harmoni, r1) and (Harmoni, r2)
-    are different nodes, so the ant can arrive at the same physical stop via a
-    different route, which is exactly how transit transfers work.
+def _construct_path(G, start_node, end_nodes_set, tau, eta, alpha, beta, tau_0,
+                    w_t, w_c, w_p, seed_path=None):
+    """
+    Construct a path from start_node toward any node in end_nodes_set.
+
+    Dead-end backtracking: on a dead-end
+    we pop back and add the node to `forbidden` so it can't be re-chosen later.
+    Without this, an ant locked onto a corridor that doesn't reach the goal
+    would simply break and produce no solution.
+
+    With seed_path: an existing partial path is inherited as the starting point for mutation.
+    The ant continues from the last node of seed_path, and backtracking is bounded so
+    inherited nodes stay pinned and cannot be altered.
     """
     if seed_path is not None:
         path = list(seed_path)
-        visited_nodes = set(path)
+        visited = set(path)
+        seed_floor = len(seed_path)
     else:
         path = [start_node]
-        visited_nodes = {start_node}
+        visited = {start_node}
+        seed_floor = 1
 
-    current = path[-1]
+    forbidden = set()
 
-    for _ in range(max_steps):
+    while path:
+        current = path[-1]
         if current in end_nodes_set:
             break
 
-        candidates = []
-        for neighbor in G.successors(current):
-            if neighbor in visited_nodes:
-                continue
-            edict = G.get_edge_data(current, neighbor)
-            if not edict:
-                continue
-            best_key = min(edict, key=lambda k: _edge_cost(edict[k], w_t, w_c, w_p))
-            candidates.append((neighbor, best_key))
+        candidates = _get_candidates(G, current, visited, forbidden, w_t, w_c, w_p)
 
         if not candidates:
-            break
+            # Dead-end. Pop back unless we're at the start / seed boundary.
+            if len(path) <= seed_floor:
+                break
+            forbidden.add(current)
+            visited.discard(current)
+            path.pop()
+            continue
 
-        probs = [
-            tau.get((current, nb, k), tau_0) ** alpha *
-            eta.get((current, nb, k), 1.0) ** beta
-            for nb, k in candidates
-        ]
-
-        next_node, _ = candidates[_roulette(probs)]
+        next_node = _sample_next(candidates, current, tau, eta, alpha, beta, tau_0)
         path.append(next_node)
-        visited_nodes.add(next_node)
-        current = next_node
+        visited.add(next_node)
 
     return path
 
 
-# ---------------------------------------------------------------------------
+def _get_candidates(G, current, visited, forbidden, w_t, w_c, w_p):
+    """Unvisited, non-forbidden successors with their cheapest edge key."""
+    out = []
+    for neighbor in G.successors(current):
+        if neighbor in visited or neighbor in forbidden:
+            continue
+        edict = G.get_edge_data(current, neighbor)
+        if not edict:
+            continue
+        out.append((neighbor, _best_edge_key(edict, w_t, w_c, w_p)))
+    return out
+
+
+def _sample_next(candidates, current, tau, eta, alpha, beta, tau_0):
+    """Probabilistic step using P_ijk ∝ τ^α · η^β (eq 2.14)."""
+    probs = [
+        tau.get((current, nb, k), tau_0) ** alpha *
+        eta.get((current, nb, k), 1.0) ** beta
+        for nb, k in candidates
+    ]
+    nb, _ = candidates[_roulette(probs)]
+    return nb
+
+
+# ==========================================================
+# Per-ant operations
+# ==========================================================
+
+def _sample_tabu_list(prior_solutions, tabu_size, n_ants):
+    """
+    Randomly select tabusize x nAnts solutions for the tabu list
+    Sampled from solutions generated so far in the current iteration.
+    """
+    if not prior_solutions:
+        return set()
+    n_tabu = int(round(tabu_size * n_ants))
+    n_tabu = min(n_tabu, len(prior_solutions))
+    if n_tabu <= 0:
+        return set()
+    sampled = random.sample(prior_solutions, n_tabu)
+    return {tuple(p) for p, _ in sampled}
+
+
+def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
+                         tau, eta, alpha, beta, tau_0,
+                         w_t, w_c, w_p, max_attempts=20):
+    """
+    while ant's path exists in tabu list do { pick node, rebuild }.
+    Keep mutating until path is no longer in tabu list (or attempts exhausted)
+    Eq 2.19: cut index k ~ Poisson(L/3), seed = path[:k], construct path from there.
+    """
+    attempts = 0
+    while tuple(path) in tabu_paths and attempts < max_attempts:
+        if len(path) < 3:
+            break
+        L = len(path)
+        k = int(np.random.poisson(max(L / 3.0, 1e-9)))
+        cut = max(1, min(k, L - 1))
+        seed = path[:cut]
+        mutant = _construct_path(G, seed[-1], end_nodes_set, tau, eta,
+                                 alpha, beta, tau_0, w_t, w_c, w_p, seed_path=seed)
+        if mutant and mutant[-1] in end_nodes_set:
+            path = mutant
+            F_a = _path_z(G, path, w_t, w_c, w_p)
+        attempts += 1
+    return path, F_a
+
+
+def _update_trail_matrix(G, path, F_a, tau, rho, w_t, w_c, w_p):
+    """
+    Per-ant trail matrix update — literal eq 2.15 + 2.16 with A_ijk = {this ant}:
+        τ_ijk(t) = (1-ρ)·τ_ijk(t-1) + Δτ_ijk
+        Δτ_ijk = 1/F_a   if edge (i,j,k) in this ant's path
+               = 0        otherwise
+    Called after each ant per Fig 2.8 (inside per-ant loop). Note this evaporates
+    ALL E edges every ant, so the iteration is O(n_ants · E) — slow on big graphs,
+    but faithful to the pseudocode.
+    """
+    # Evaporation across all edges (eq 2.15 first term)
+    for key in tau:
+        tau[key] = max(tau[key] * (1.0 - rho), 1e-10)
+
+    # Deposit on edges traversed by this ant (eq 2.16)
+    for u, v in zip(path, path[1:]):
+        edict = G.get_edge_data(u, v)
+        if not edict:
+            continue
+        key = (u, v, _best_edge_key(edict, w_t, w_c, w_p))
+        if key in tau:
+            tau[key] += 1.0 / (F_a + 1e-9)
+
+
+# ==========================================================
 # Main solver
-# ---------------------------------------------------------------------------
+# ==========================================================
 
 def find_route_with_haco(
     G, stop_to_routes, start_stop, end_stop, weights,
-    n_ants=10,
-    max_iter=50,
-    alpha=1.0,      # pheromone exponent
-    beta=2.0,       # heuristic exponent
-    rho=0.1,        # pheromone evaporation rate
-    Q=1.0,          # pheromone deposit strength
-    tau_0=0.1,      # initial pheromone on all edges
-    max_no_improve_iter=15,  # second stopping criterion: iterations without improvement
-    lambda_mut=0.3, # Poisson mutation rate
+    n_ants=HACO_N_ANTS,
+    max_iter=HACO_MAX_ITER,
+    alpha=HACO_ALPHA,                          # pheromone exponent (eq 2.14)
+    beta=HACO_BETA,                            # heuristic exponent (eq 2.14) — Table 1 of AlHousrya 2024
+    rho=HACO_RHO,                              # evaporation rate (eq 2.15)
+    tau_0=HACO_TAU_0,                          # initial pheromone — 2.6.2: τ_ijk(0) = 1
+    max_no_improve_iter=HACO_MAX_NO_IMPROVE_ITER,  # per-ant non-improvement count (pseudocode noImprovementIterations)
+    tabu_size=HACO_TABU_SIZE,                  # fraction of solutions sampled into Tabu List
 ):
     """
-    Find optimal route using Hybrid Ant Colony Optimization.
+    Hybrid ACO route search
 
-    Hybrid element: after each construction phase, k ~ Poisson(lambda_mut) mutation
-    events are applied per solution — each truncates the path at a random interior
-    point and re-grows it, keeping the result only if it improves Z.
+    Outer loop:
+      while iterations < maxIterations AND noImprovementIterations < maxNoImprovement
 
-    Dual stopping criteria: max_iter OR `max_no_improve_iter` consecutive iterations without
-    improvement to the global best.
+    Inner loop (per ant):
+      1. Create an ant — construct a path from start to end.
+      2. Randomly select tabusize x nAnts solutions for the tabu list.
+      3. While ant's path exists in the tabu list => pick a node, rebuild (mutation).
+      4. Update trail matrix (evaporate all edges + deposit on this ant's edges).
+      5. If objective improved => noImprovementIterations = 0, else += 1.
+
+    NOTE: step 4 evaporates every edge once per ant, so each iteration is
+    O(n_ants · |E|). Slow on large graphs by design — kept faithful to Fig 2.8.
     """
     print("--- Start find route with HACO ---")
 
+    # --- Validate inputs ---
     if start_stop not in stop_to_routes:
-        return {"error": f"Halte Asal '{start_stop}' tidak ditemukan."}
+        return {"error": f"Halte Asal '{start_stop}' tidak dilayani angkutan pada jam yang dipilih."}
     if end_stop not in stop_to_routes:
-        return {"error": f"Halte Tujuan '{end_stop}' tidak ditemukan."}
+        return {"error": f"Halte Tujuan '{end_stop}' tidak dilayani angkutan pada jam yang dipilih."}
 
     start_nodes = [n for n in G.nodes() if n[0] == start_stop]
     end_nodes_set = {n for n in G.nodes() if n[0] == end_stop}
-
     if not start_nodes or not end_nodes_set:
         return {"error": "Node asal atau tujuan tidak terhubung ke graf."}
 
@@ -138,93 +259,72 @@ def find_route_with_haco(
     w_c = float(weights.get('biaya', 0))
     w_p = float(weights.get('transit', 0))
 
-    # Cap path length at 300 steps — far more than any realistic Transjakarta journey.
-    max_steps = min(G.number_of_nodes(), 300)
-
-    # Precompute heuristic: η(i,j,k) = 1 / (d_ijk + ε)
-    eta = {
-        (u, v, key): 1.0 / (_edge_cost(data, w_t, w_c, w_p) + 1e-9)
-        for u, v, key, data in G.edges(keys=True, data=True)
-    }
-
-    # Initialize pheromone trails uniformly
+    # η(i,j,k) = 1 / edge_cost — cheaper edges get higher attractiveness (eq 2.17–2.18)
+    eta = {}
+    for u, v, key, data in G.edges(keys=True, data=True):
+        eta[(u, v, key)] = 1.0 / (_edge_cost(data, w_t, w_c, w_p) + 1e-9)
+    # Initial pheromone trails —  2.6.2: τ_ijk(0) = matrix of ones
     tau = {(u, v, key): tau_0 for u, v, key in G.edges(keys=True)}
 
-    best_path = None
-    best_z = float('inf')
+    best_path, best_z = None, float('inf')
     no_improvement = 0
+    iteration = 0
+    t_start = perf_counter()
 
-    for iteration in range(max_iter):
+    # --- Outer loop (pseudocode: while iterations < maxIter AND noImp < maxNoImp) ---
+    while iteration < max_iter and no_improvement < max_no_improve_iter:
+        iteration_solutions = []  # prior solutions this iteration, for tabu sampling
 
-        # --- Ant construction phase ---
-        solutions = []
-        for _ in range(n_ants):
+        # --- Inner loop: per ant ---
+        ant_index = 0
+        while ant_index < n_ants:
+            # 1. Create an ant — construct a path from a random start node
             start = random.choice(start_nodes)
-            path = _grow_path(G, start, end_nodes_set, tau, eta, alpha, beta,
-                              tau_0, w_t, w_c, w_p, max_steps)
-            if path and path[-1] in end_nodes_set:
-                solutions.append(path)
+            path = _construct_path(G, start, end_nodes_set, tau, eta,
+                                   alpha, beta, tau_0, w_t, w_c, w_p)
 
-        # --- Poisson mutation (hybrid element) ---
-        # Per solution: k ~ Poisson(lambda_mut) independent mutation attempts.
-        improved = []
-        for path in solutions:
-            z_curr = _path_z(G, path, w_t, w_c, w_p)
-            n_mut = int(np.random.poisson(lambda_mut))
-            for _ in range(n_mut):
-                if len(path) < 3:
-                    break
-                cut = random.randint(1, len(path) - 1)
-                seed = path[:cut]
-                mutant = _grow_path(G, seed[-1], end_nodes_set, tau, eta, alpha, beta,
-                                    tau_0, w_t, w_c, w_p, max_steps, seed_path=seed)
-                if mutant and mutant[-1] in end_nodes_set:
-                    z_mut = _path_z(G, mutant, w_t, w_c, w_p)
-                    if z_mut < z_curr:
-                        path, z_curr = mutant, z_mut
-            improved.append(path)
-        solutions = improved
-
-        if not solutions:
-            no_improvement += 1
-            if no_improvement >= max_no_improve_iter:
-                print(f"HACO: Konvergen di iterasi {iteration + 1} (no solutions)")
-                break
-            continue
-
-        # --- Update global best ---
-        iter_best = min(solutions, key=lambda p: _path_z(G, p, w_t, w_c, w_p))
-        iter_z = _path_z(G, iter_best, w_t, w_c, w_p)
-
-        if iter_z < best_z:
-            best_z = iter_z
-            best_path = iter_best
-            no_improvement = 0
-        else:
-            no_improvement += 1
-
-        # --- Pheromone evaporation ---
-        for key in tau:
-            tau[key] = max(tau[key] * (1.0 - rho), 1e-10)
-
-        # --- Global-best deposit ---
-        deposit = Q / (best_z + 1e-9)
-        for u, v in zip(best_path, best_path[1:]):
-            edict = G.get_edge_data(u, v)
-            if not edict:
+            if not path or path[-1] not in end_nodes_set:
+                no_improvement += 1
+                ant_index += 1
                 continue
-            best_key = min(edict, key=lambda k: _edge_cost(edict[k], w_t, w_c, w_p))
-            if (u, v, best_key) in tau:
-                tau[(u, v, best_key)] += deposit
 
-        # --- Dual stopping criteria ---
-        if no_improvement >= max_no_improve_iter:
-            print(f"HACO: Konvergen di iterasi {iteration + 1} (no_improvement)")
-            break
+            F_a = _path_z(G, path, w_t, w_c, w_p)
+
+            # 2. Randomly select tabusize x nAnts solutions for the tabu list
+            tabu_paths = _sample_tabu_list(iteration_solutions, tabu_size, n_ants)
+
+            # 3. While ant's path exists in tabu list => mutate
+            path, F_a = _mutate_until_unique(
+                G, path, F_a, tabu_paths, end_nodes_set,
+                tau, eta, alpha, beta, tau_0, w_t, w_c, w_p,
+            )
+
+            iteration_solutions.append((path, F_a))
+
+            # 4. Update trail matrix (per ant)
+            _update_trail_matrix(G, path, F_a, tau, rho, w_t, w_c, w_p)
+
+            # 5. Improvement check (per ant)
+            if F_a < best_z:
+                best_z, best_path = F_a, path
+                no_improvement = 0
+                print(f"HACO: Solusi terbaik di iterasi {iteration+1}, "
+                      f"semut {ant_index+1} (z={best_z:.6f}, "
+                      f"t={perf_counter()-t_start:.2f}s)")
+            else:
+                no_improvement += 1
+
+            ant_index += 1
+
+        iteration += 1
 
     if best_path is None:
         return {"error": "Jalur tidak ditemukan oleh HACO."}
 
+    print(f"HACO: Selesai di iterasi {iteration} (z_best={best_z:.6f}, "
+          f"total t={perf_counter()-t_start:.2f}s)")
+
+    # --- Build response payload ---
     final_metrics = calculate_final_metrics(G, best_path, weights)
     if "error" in final_metrics:
         return final_metrics

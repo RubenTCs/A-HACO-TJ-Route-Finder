@@ -1,7 +1,20 @@
-<div class="col-12 col-lg-8">
-    <section
-        id = "routeMap"
-        class="route-visual-card h-100 rounded-4 p-4 d-flex align-items-center justify-content-center"
-    >
-    </section>
+{# Map card — Option A #}
+<div class="map-wrap">
+    <div class="map-card">
+        {% if hasil and hasil.detailed_journey %}
+            <div id="routeMap"></div>
+            <div class="map-overlay-pill">
+                <span class="dot start"></span>
+                <b style="font-size:13px;">{{ hasil.halte_asal }}</b>
+                <span class="arrow">&rarr;</span>
+                <b style="font-size:13px;">{{ hasil.halte_tujuan }}</b>
+                <span class="sep"></span>
+                <span class="meta">{{ hasil.jarak_km }} km</span>
+            </div>
+        {% else %}
+            <div class="route-map-empty">
+                Masukkan halte awal dan tujuan untuk melihat rute di peta.
+            </div>
+        {% endif %}
+    </div>
 </div>

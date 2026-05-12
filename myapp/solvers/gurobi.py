@@ -1,9 +1,9 @@
 import gurobipy as gp
-import numpy as np
 from .utils import (
     calculate_final_metrics,
     build_detailed_journey,
-    build_path_coordinates
+    build_path_coordinates,
+    get_boarding_fare,
 )
 # -- Gurobi Solver --
 def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
@@ -32,9 +32,9 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
 
     # Validate inputs
     if start_stop not in stop_to_routes:
-        return {"error": f"Halte Asal '{start_stop}' tidak ditemukan."}
+        return {"error": f"Halte Asal '{start_stop}' tidak dilayani angkutan pada jam yang dipilih."}
     if end_stop not in stop_to_routes:
-        return {"error": f"Halte Tujuan '{end_stop}' tidak ditemukan."}
+        return {"error": f"Halte Tujuan '{end_stop}' tidak dilayani angkutan pada jam yang dipilih."}
     
     # Get candidate nodes for start and end stops (to ensure the start node and end node is in the Graph)
     start_nodes = [n for n in G.nodes() if n[0] == start_stop]
@@ -64,8 +64,8 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         for u, v, key in G.edges(keys=True):
             x[(u, v, key)] = model.addVar(vtype=gp.GRB.BINARY, name=f"x_{u}_{v}_{key}")
 
-        # Super-source and super-sink arc variables.
-        # They represent arcs (S,j,k) and (i,D,k) in (2.2)-(2.3).
+        # Super-source and super-sink edges variables.
+        #Represent edges (S,j,k) and (i,D,k) in (2.2)-(2.3).
         x_source = {}
         for s in start_nodes:
             x_source[s] = model.addVar(vtype=gp.GRB.BINARY, name=f"x_source_{s}")
@@ -81,22 +81,28 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         
         # model.update()
 
-        # (2.5) and (2.6): non-negative and normalized weights.
-        model.addConstr(w_t + w_c + w_p == 1, "weight_sum")
-        model.addConstr(w_t == w_t_input, "fix_w_t")
-        model.addConstr(w_c == w_c_input, "fix_w_c")
-        model.addConstr(w_p == w_p_input, "fix_w_p")
-
         # (2.1) Objective: min sum((w_t*t_ijk_norm + w_c*c_ijk_norm + w_p*p_ijk) * x_ijk)
         obj_expr = gp.quicksum(
             (
                 w_t * G.get_edge_data(u, v, key).get('Waktuij_norm', 0) +
                 w_c * G.get_edge_data(u, v, key).get('Biayaij_norm', 0) +
-                w_p * G.get_edge_data(u, v, key).get('Transitij', 0)
+                w_p * G.get_edge_data(u, v, key).get('Transitij_norm', 0)
             ) * x[(u, v, key)]
             for u, v, key in G.edges(keys=True)
         )
+
+        # Boarding fare for the chosen start node
+        obj_expr += gp.quicksum(
+            w_c * get_boarding_fare(G, s)[1] * x_source[s]
+            for s in start_nodes
+        )
         model.setObjective(obj_expr, gp.GRB.MINIMIZE)
+
+        # (2.5) and (2.6): non-negative and normalized weights.
+        model.addConstr(w_t + w_c + w_p == 1, "weight_sum")
+        model.addConstr(w_t == w_t_input, "fix_w_t")
+        model.addConstr(w_c == w_c_input, "fix_w_c")
+        model.addConstr(w_p == w_p_input, "fix_w_p")
 
         # (2.2): Add constraint hanya satu arc keluar dari S (source).
         model.addConstr(gp.quicksum(x_source[s] for s in start_nodes) == 1, "source")
@@ -131,36 +137,42 @@ def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         # Solve
         model.optimize()
 
-        # Extract active edges
-        active_edges = [(u, v, key) for u, v, key in G.edges(keys=True) 
-                       if x[(u, v, key)].X == 1]
-        
-        # Find actual start node
-        actual_start = next((s for s in start_nodes if x_source[s].X == 1), start_nodes[0])
-        
-        # Reconstruct path by following active edges
+        # -----------------------------------------------------------
+        # region extract path 
+        # -----------------------------------------------------------
+
+        # Use 0.5 threshold for binary vars. Gurobi can return 0.9999... or 1.0001
+        # due to numerical tolerance, so direct == 1 comparison is unsafe.
+        BIN_THRESHOLD = 0.5 
+
+        # Build map: each node has at most one outgoing active edge by flow conservation, so next_of[u] = v is well-defined.
+        next_of = {}
+        for u, v, key in G.edges(keys=True):
+            if x[(u, v, key)].X > BIN_THRESHOLD: # Pembulatan untuk variabel biner
+                next_of[u] = v
+
+        # Find actual start node from x_source.
+        actual_start = next(
+            (s for s in start_nodes if x_source[s].X > BIN_THRESHOLD),
+            start_nodes[0],
+        )
+
+        # Walk the linked list from start until we run out of edges.
         path = [actual_start]
         current = actual_start
-        remaining = set(active_edges)
-        
-        while remaining:
-            next_node = None
-            for (u, v, key) in list(remaining):
-                if u == current:
-                    next_node = v
-                    remaining.remove((u, v, key))
-                    break
-            
-            if next_node is None:
-                break
-            
-            path.append(next_node)
-            current = next_node
+        while current in next_of:
+            current = next_of[current]
+            path.append(current)
         
         # Verify path ends at a valid end node
         if not path or path[-1][0] != end_stop:
             return {"error": "Jalur tidak ditemukan lengkap."}
         
+        # -----------------------------------------------------------
+        # endregion
+        # -----------------------------------------------------------
+
+
         # Calculate final metrics
         final_metrics = calculate_final_metrics(G, path, weights)
         if "error" in final_metrics:

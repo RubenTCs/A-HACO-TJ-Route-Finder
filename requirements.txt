@@ -1,0 +1,8 @@
+Django==5.0.5
+gtfs_kit==12.0.4
+gurobipy==13.0.2
+networkx==3.0
+numpy==2.4.4
+openpyxl==3.1.2
+pandas==3.0.3
+scipy==1.17.1

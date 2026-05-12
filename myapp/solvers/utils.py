@@ -1,6 +1,30 @@
-import numpy as np
+"""
+Utils/Helper
+"""
+
 from math import radians, sin, cos, sqrt, asin
 from ..gtfs_helper import gtfsHelper
+from ..constants import (
+    C_MAX,
+    DEFAULT_ROUTE_COLOR,
+    WALKING_COLOR,
+    WALKING_SPEED_KMH,
+    WALKING_FALLBACK_MAX_DISTANCE_KM,
+)
+
+
+def get_boarding_fare(G, node):
+    """Return (raw_idr, normalized) boarding fare for the route encoded in `node`.
+
+    `node` is the (stop_name, route_id) tuple at the start of a path. Travel edges
+    carry Biayaij=0, so the first-corridor fare must be added separately to keep
+    the optimizer's objective and the displayed total honest.
+    """
+    route_to_price = G.graph.get('route_to_price', {})
+    if isinstance(node, tuple) and len(node) > 1:
+        price = float(route_to_price.get(str(node[1]), 0.0))
+        return price, price / C_MAX
+    return 0.0, 0.0
 
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -104,7 +128,7 @@ def _find_shape_for_segment(route_id, from_stop, to_stop, route_shape_map):
 def build_route_color_map():
     """Return {route_id: '#RRGGBB'} from GTFS routes, defaulting to blue."""
     routes_df = gtfsHelper.routes
-    DEFAULT = "#2563eb"
+    DEFAULT = DEFAULT_ROUTE_COLOR
     if routes_df is None or 'route_color' not in routes_df.columns or 'route_id' not in routes_df.columns:
         return {}
     result = {}
@@ -153,9 +177,62 @@ def _select_edge_data(edge_data):
     # Graph/DiGraph: {attr: value}
     return edge_data
 
-def parameter_validation():
-    
-    return None
+
+def compute_walking_only_route(start_stop, end_stop, walking_speed_kmh=WALKING_SPEED_KMH,
+                               max_distance_km=WALKING_FALLBACK_MAX_DISTANCE_KM):
+    """Build a walking-only route between two halte if within max_distance_km.
+
+    Used as a fallback when the transit solver finds no path but the two halte
+    are close enough that walking is a sensible alternative. Returns a result
+    dict shaped like a solver output (so the same UI/render pipeline works), or
+    None when walking isn't feasible (halte unknown or too far).
+    """
+    coord_map = build_coord_map()
+    start_coord = coord_map.get(start_stop)
+    end_coord = coord_map.get(end_stop)
+    if start_coord is None or end_coord is None:
+        return None
+
+    # build_coord_map stores (lat, lon); haversine expects (lon, lat).
+    dist_km = haversine(start_coord[1], start_coord[0], end_coord[1], end_coord[0])
+    if dist_km > max_distance_km:
+        return None
+
+    duration_min = (dist_km / walking_speed_kmh) * 60.0
+    from_coord = [float(start_coord[0]), float(start_coord[1])]
+    to_coord = [float(end_coord[0]), float(end_coord[1])]
+
+    walk_step = {
+        "type": "walk",
+        "from_halte": start_stop,
+        "to_halte": end_stop,
+        "from_koridor": "walk",
+        "to_koridor": "walk",
+        "distance_km": dist_km,
+        "duration_min": duration_min,
+        "coords_from": from_coord,
+        "coords_to": to_coord,
+    }
+
+    path_segment = {
+        "coords": [from_coord, to_coord],
+        "color": WALKING_COLOR,
+        "koridor": "walk",
+        "dashed": True,
+    }
+
+    return {
+        "detailed_journey": [walk_step],
+        "path_coordinates": [from_coord, to_coord],
+        "path_segments": [path_segment],
+        "jarak_km": round(dist_km, 2),
+        "waktu_tempuh_menit": round(duration_min, 1),
+        "total_biaya": 0,
+        "jumlah_transit": 0,
+        "z_score": 0,
+        "is_walking_only": True,
+    }
+
 
 def build_detailed_journey(G, path):
     """Builds detailed journey steps by grouping travel per corridor and explicit transfers"""
@@ -193,7 +270,7 @@ def build_detailed_journey(G, path):
 
         if edge_type == 'travel':
             # Lanjutkan segmen jika masih di koridor yang sama, jika beda koridor maka flush segmen lama
-            if not travel_segment_nodes: 
+            if not travel_segment_nodes:
                 travel_segment_nodes = [u, v]
                 continue
 
@@ -202,9 +279,25 @@ def build_detailed_journey(G, path):
 
             if current_corridor == segment_corridor:
                 travel_segment_nodes.append(v)
-            else: 
+            else:
                 filter_travel_segment(travel_segment_nodes)
                 travel_segment_nodes = [u, v]
+        elif edge_type == 'walk':
+            # Walk antar halte berbeda — perlu both endpoints supaya peta bisa
+            # menggambar garis jalan kaki.
+            filter_travel_segment(travel_segment_nodes)
+            travel_segment_nodes = []
+
+            step = {
+                "type": "walk",
+                "from_halte": u[0],
+                "to_halte": v[0],
+                "from_koridor": u[1],
+                "to_koridor": v[1],
+                "distance_km": edge_data.get('distance_km', 0),
+                "duration_min": edge_data.get('Waktuij', 0),
+            }
+            detailed_route_steps.append(step)
         else:  # edge_type == 'transfer'
             # Transfer disimpan sebagai langkah terpisah antar koridor di halte yang sama.
             filter_travel_segment(travel_segment_nodes)
@@ -220,6 +313,7 @@ def build_detailed_journey(G, path):
 
     filter_travel_segment(travel_segment_nodes)
     return detailed_route_steps
+
 
 def build_path_coordinates(detailed_journey, path):
     """Build path coordinates from GTFS shapes/stops and journey steps.
@@ -249,8 +343,11 @@ def build_path_coordinates(detailed_journey, path):
 
     def attach_step_coordinates(step, coord_map):
         # Attach coordinates directly to each journey step.
-        start_coord = coord_map.get(step.get("from"))
-        end_coord = coord_map.get(step.get("to"))
+        # Walk steps use from_halte/to_halte instead of from/to.
+        from_name = step.get("from") or step.get("from_halte")
+        to_name = step.get("to") or step.get("to_halte")
+        start_coord = coord_map.get(from_name)
+        end_coord = coord_map.get(to_name)
         transfer_coord = coord_map.get(step.get("halte"))
 
         step["coords_from"] = to_coord_list(start_coord)
@@ -285,7 +382,7 @@ def build_path_coordinates(detailed_journey, path):
                 to_stop = step.get("to")
                 via_stops = list(step.get("via") or [])
                 route_id = step.get("koridor")
-                color = route_color_map.get(str(route_id), "#2563eb")
+                color = route_color_map.get(str(route_id), DEFAULT_ROUTE_COLOR)
 
                 step_coords = []
                 shape_used = False
@@ -337,6 +434,21 @@ def build_path_coordinates(detailed_journey, path):
             if step.get("type") == "transfer":
                 # Step 3c: Transfer contributes a single stop coordinate.
                 append_unique_coord(step.get("coords"))
+                continue
+
+            if step.get("type") == "walk":
+                # Step 3d: Walk segment connects two different stops with a straight line.
+                from_coord = step.get("coords_from")
+                to_coord = step.get("coords_to")
+                if from_coord and to_coord:
+                    path_segments.append({
+                        "coords": [from_coord, to_coord],
+                        "color": WALKING_COLOR,
+                        "koridor": "walk",
+                        "dashed": True,
+                    })
+                    append_unique_coord(from_coord)
+                    append_unique_coord(to_coord)
 
         if not path_coordinates and isinstance(path, list):
             # Step 4: Fallback to node path sequence when journey polyline is empty.
@@ -367,6 +479,7 @@ def build_path_coordinates(detailed_journey, path):
     ]
     return {"path_coordinates": valid_coords, "path_segments": path_segments}
 
+
 def calculate_final_metrics(G, path, weights):
     """
     Calculate total time, distance, and transit count from a path.
@@ -395,6 +508,14 @@ def calculate_final_metrics(G, path, weights):
     if not path or len(path) < 2:
         return {"waktu_tempuh_menit": 0, "jarak_km": 0, "jumlah_transit": 0, "error": "Path tidak valid"}
 
+    # Boarding fare for the first corridor. travel edges carry Biayaij=0,
+    # so without this the displayed cost is 0 for any single-corridor route.
+    # Apply it to z_score too so the displayed objective matches what each
+    # solver now optimizes (boarding fare is added per start node).
+    boarding_raw, boarding_norm = get_boarding_fare(G, path[0])
+    total_cost += boarding_raw
+    z_score += w_c_input * boarding_norm
+
     for u, v in zip(path, path[1:]):
         if not G.has_edge(u, v):
             print(f"WARNING: Edge tidak ditemukan di path: {u} -> {v}")
@@ -414,14 +535,14 @@ def calculate_final_metrics(G, path, weights):
         total_dist += edge_data.get('distance_km', 0)
         total_cost += edge_data.get('Biayaij', 0)
 
-        if edge_data.get('type') == 'transfer':
+        if edge_data.get('type') in ('transfer', 'walk'):
             total_trans += 1
 
         # Z-score uses normalized values to match the MILP/A*/HACO objective (eq 2.1)
         z_score += (
             w_t_input * edge_data.get('Waktuij_norm', 0) +
             w_c_input * edge_data.get('Biayaij_norm', 0) +
-            w_p_input * edge_data.get('Transitij', 0)
+            w_p_input * edge_data.get('Transitij_norm', 0)
         )
 
     return {

@@ -62,9 +62,15 @@ document.addEventListener("DOMContentLoaded", function () {
         pathSegments.forEach((seg) => {
             const pts = (seg.coords || []).filter(isCoord).map((c) => [c[0], c[1]]);
             if (pts.length === 0) return;
-            L.polyline(pts, { color: seg.color || "#2563eb", weight: 6, opacity: 0.9 })
+            const opts = { color: seg.color || "#2563eb", weight: 6, opacity: 0.9 };
+            if (seg.dashed) {
+                opts.dashArray = "8 8";
+                opts.weight = 4;
+            }
+            const popupLabel = seg.koridor === "walk" ? "Jalan kaki" : `Koridor ${seg.koridor}`;
+            L.polyline(pts, opts)
             .addTo(map)
-            .bindPopup(`<b>Koridor ${seg.koridor}</b>`);
+            .bindPopup(`<b>${popupLabel}</b>`);
             bounds.push(...pts);
         });
     } else {
@@ -81,11 +87,21 @@ document.addEventListener("DOMContentLoaded", function () {
     const firstTravelStep = travelSteps[0];
     const lastTravelStep = travelSteps[travelSteps.length - 1];
 
+    // Walking-only fallback: no travel steps, anchor markers on the walk endpoints.
+    const isWalkingOnly = !!routeData.is_walking_only;
+    const walkOnlyStep = isWalkingOnly ? detailedJourney.find((s) => s.type === "walk") : null;
+
     if (firstTravelStep) {
         addMarker(
             firstTravelStep.coords_from,
             startIcon,
             `<b>Halte awal</b><br>${firstTravelStep.from || "Halte awal"}`
+        );
+    } else if (walkOnlyStep) {
+        addMarker(
+            walkOnlyStep.coords_from,
+            startIcon,
+            `<b>Halte awal</b><br>${walkOnlyStep.from_halte || "Halte awal"}`
         );
     }
 
@@ -94,6 +110,12 @@ document.addEventListener("DOMContentLoaded", function () {
             lastTravelStep.coords_to,
             endIcon,
             `<b>Halte tujuan</b><br>${lastTravelStep.to || "Halte tujuan"}`
+        );
+    } else if (walkOnlyStep) {
+        addMarker(
+            walkOnlyStep.coords_to,
+            endIcon,
+            `<b>Halte tujuan</b><br>${walkOnlyStep.to_halte || "Halte tujuan"}`
         );
     }
 
@@ -118,7 +140,15 @@ document.addEventListener("DOMContentLoaded", function () {
             addMarker(
                 transferCoord,
                 transferIcon,
-                `<b>Transfer</b><br>${step.halte || "Perpindahan koridor"}`
+                `<b>Transit</b><br>${step.halte || "Perpindahan koridor"}`
+            );
+        }
+
+        if (step.type === "walk") {
+            addMarker(
+                step.coords_from,
+                transferIcon,
+                `<b>Jalan kaki</b><br>${step.from_halte || ""} &rarr; ${step.to_halte || ""}`
             );
         }
     });

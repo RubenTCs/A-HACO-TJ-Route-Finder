@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Log &middot; Transjakarta Route Finder{% endblock %}
+
+{% block content %}
+<div class="opt">
+    <div class="topbar">
+        <div class="brand">
+            <div class="brand-mark">TJ</div>
+            <div>
+                <div class="brand-name">Transjakarta &middot; Log</div>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            <a href="{% url 'index' %}" class="nav-btn">&larr; Back</a>
+        </div>
+    </div>
+
+    <div class="log-shell">
+        <div class="log-meta">
+            Total: <b>{{ total_searches }}</b> pencarian
+        </div>
+
+        <div class="log-table-wrap">
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th class="sticky-col">#</th>
+                        <th>Timestamp</th>
+                        <th>Asal</th>
+                        <th>Tujuan</th>
+                        <th>Tanggal</th>
+                        <th>Jam</th>
+                        <th>Preferensi</th>
+                        <th>Solver</th>
+                        <th>Mode</th>
+                        <th>Speed (km/h)</th>
+                        <th>W_Waktu</th>
+                        <th>W_Biaya</th>
+                        <th>W_Transit</th>
+                        <th>Waktu (min)</th>
+                        <th>Jarak (km)</th>
+                        <th>Biaya (Rp)</th>
+                        <th>Transit</th>
+                        <th>Obj. Value</th>
+                        <th>Runtime (s)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td class="sticky-col idx">{{ row.search_id }}</td>
+                            <td class="ts">{{ row.timestamp }}</td>
+                            <td>{{ row.halte_asal }}</td>
+                            <td>{{ row.halte_tujuan }}</td>
+                            <td>{{ row.tanggal_berangkat }}</td>
+                            <td>{{ row.jam_berangkat }}</td>
+                            <td>{{ row.preferensi }}</td>
+                            <td>{{ row.metode_solver }}</td>
+                            <td>{{ row.mode_waktu }}</td>
+                            <td class="num">{{ row.param_speed }}</td>
+                            <td class="num">{{ row.weights_waktu }}</td>
+                            <td class="num">{{ row.weights_biaya }}</td>
+                            <td class="num">{{ row.weights_transit }}</td>
+                            <td class="num">{{ row.waktu }}</td>
+                            <td class="num">{{ row.jarak }}</td>
+                            <td class="num">{{ row.biaya }}</td>
+                            <td class="num">{{ row.transit }}</td>
+                            <td class="num">{{ row.obj_value }}</td>
+                            <td class="num">{{ row.runtime }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="19" class="empty-row">Belum ada log.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
