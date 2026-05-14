@@ -10,6 +10,7 @@ from ..constants import (
     WALKING_COLOR,
     WALKING_SPEED_KMH,
     WALKING_FALLBACK_MAX_DISTANCE_KM,
+    FREE_FARE_CLASSES,
 )
 
 
@@ -20,11 +21,15 @@ def get_boarding_fare(G, node):
     carry Biayaij=0, so the first-corridor fare must be added separately to keep
     the optimizer's objective and the displayed total honest.
     """
+    if not (isinstance(node, tuple) and len(node) > 1):
+        return 0.0, 0.0
+    route_id = str(node[1])
+    route_to_fare_id = G.graph.get('route_to_fare_id', {})
+    if route_to_fare_id.get(route_id) in FREE_FARE_CLASSES:
+        return 0.0, 0.0
     route_to_price = G.graph.get('route_to_price', {})
-    if isinstance(node, tuple) and len(node) > 1:
-        price = float(route_to_price.get(str(node[1]), 0.0))
-        return price, price / C_MAX
-    return 0.0, 0.0
+    price = float(route_to_price.get(route_id, 0.0))
+    return price, price / C_MAX
 
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -497,7 +502,6 @@ def calculate_final_metrics(G, path, weights):
     """
     total_dist = 0.0
     total_time = 0.0  # in minutes (raw, for display)
-    total_trans = 0
     total_cost = 0.0
     z_score = 0.0
 
@@ -515,6 +519,11 @@ def calculate_final_metrics(G, path, weights):
     boarding_raw, boarding_norm = get_boarding_fare(G, path[0])
     total_cost += boarding_raw
     z_score += w_c_input * boarding_norm
+
+    # Track routes actually ridden (from travel edges) to count real transits.
+    # A transit is when the ridden route changes — a walk to the final stop
+    # without boarding another bus does not count.
+    traveled_routes = []
 
     for u, v in zip(path, path[1:]):
         if not G.has_edge(u, v):
@@ -535,8 +544,10 @@ def calculate_final_metrics(G, path, weights):
         total_dist += edge_data.get('distance_km', 0)
         total_cost += edge_data.get('Biayaij', 0)
 
-        if edge_data.get('type') in ('transfer', 'walk'):
-            total_trans += 1
+        if edge_data.get('type') == 'travel' and isinstance(u, tuple):
+            route = u[1]
+            if not traveled_routes or traveled_routes[-1] != route:
+                traveled_routes.append(route)
 
         # Z-score uses normalized values to match the MILP/A*/HACO objective (eq 2.1)
         z_score += (
@@ -544,6 +555,9 @@ def calculate_final_metrics(G, path, weights):
             w_c_input * edge_data.get('Biayaij_norm', 0) +
             w_p_input * edge_data.get('Transitij_norm', 0)
         )
+
+    # Transit = number of route changes actually ridden (segments - 1)
+    total_trans = max(0, len(traveled_routes) - 1)
 
     return {
         "waktu_tempuh_menit": round(total_time, 1),

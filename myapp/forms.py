@@ -1,6 +1,6 @@
 from django import forms
 
-class RouteForm(forms.Form):
+class PathForm(forms.Form):
     halte_asal = forms.CharField(label="Halte Asal", max_length=100)
     halte_tujuan = forms.CharField(label="Halte Tujuan", max_length=100)
     preferensi = forms.ChoiceField(

@@ -123,7 +123,7 @@ def _reconstruct_path(goal_node, came_from):
 # Main solver
 # ==========================================================
 
-def find_route_with_astar(G, stop_to_routes, start_stop, end_stop, weights, speed_kmh=DEFAULT_SPEED_KMH):
+def find_path_with_astar(G, stop_to_routes, start_stop, end_stop, weights, speed_kmh=DEFAULT_SPEED_KMH):
     """Find optimal route via A* on the multigraph."""
     print("--- Start find route with A* ---")
 

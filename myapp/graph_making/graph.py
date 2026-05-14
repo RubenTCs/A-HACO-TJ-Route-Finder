@@ -538,11 +538,6 @@ def construct_graph_with_costs(depart_date=None,
                     node1 = (name_a, route_a)
                     node2 = (name_b, route_b)
 
-                    fare_a = route_to_fare_id.get(str(route_a))
-                    fare_b = route_to_fare_id.get(str(route_b))
-                    walk_cost_ab = transfer_fare(fare_a, fare_b)
-                    walk_cost_ba = transfer_fare(fare_b, fare_a)
-
                     # Total time = walk + expected boarding wait for the destination route.
                     total_ab = walk_base_min + boarding_wait_min(route_b)
                     total_ba = walk_base_min + boarding_wait_min(route_a)
@@ -552,22 +547,22 @@ def construct_graph_with_costs(depart_date=None,
                     G.add_edge(node1, node2, key=key_fwd,
                                type="walk",
                                Waktuij=total_ab,
-                               Biayaij=walk_cost_ab,
-                               Transitij=1,
+                               Biayaij=0.0,
+                               Transitij=0,
                                Waktuij_norm=total_ab / T_MAX,
-                               Biayaij_norm=walk_cost_ab / C_MAX,
-                               Transitij_norm=1.0 / P_MAX,
+                               Biayaij_norm=0.0,
+                               Transitij_norm=0.0,
                                distance_km=dist_km)
                     # key reverse
                     key_rev = f"walk_{name_b}_{route_b}_to_{name_a}_{route_a}"
                     G.add_edge(node2, node1, key=key_rev,
                                type="walk",
                                Waktuij=total_ba,
-                               Biayaij=walk_cost_ba,
-                               Transitij=1,
+                               Biayaij=0.0,
+                               Transitij=0,
                                Waktuij_norm=total_ba / T_MAX,
-                               Biayaij_norm=walk_cost_ba / C_MAX,
-                               Transitij_norm=1.0 / P_MAX,
+                               Biayaij_norm=0.0,
+                               Transitij_norm=0.0,
                                distance_km=dist_km)
                     walking_edges_added += 2
 

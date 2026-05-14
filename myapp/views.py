@@ -1,13 +1,13 @@
 import os
-from .forms import RouteForm
+from .forms import PathForm
 from .solvers.gurobi import (
-    find_route_with_gurobi
+    find_path_with_gurobi
 )
 from .solvers.astar import (
-    find_route_with_astar
+    find_path_with_astar
 )
 from .solvers.haco import (
-    find_route_with_haco
+    find_path_with_haco
 )
 from .graph_making.graph import (
     construct_graph_with_costs,
@@ -49,10 +49,10 @@ def index(request):
     # Read-and-clear flash-like data for the GET after redirect.
     hasil = request.session.pop("hasil", {})
     form_initial = request.session.pop("form_data", None)
-    form = RouteForm(initial=form_initial) if form_initial else RouteForm()
-    
+    form = PathForm(initial=form_initial) if form_initial else PathForm()
+
     if request.method == "POST":
-        form = RouteForm(request.POST)
+        form = PathForm(request.POST)
 
         if form.is_valid():
 
@@ -127,15 +127,15 @@ def index(request):
                         hasil = {"error": "Gagal membangun graf"}
                     else:
                         solver_runners = {
-                            "MILP": lambda: find_route_with_gurobi(
+                            "MILP": lambda: find_path_with_gurobi(
                                 G, stop_to_routes,
                                 start_stop=halte_asal, end_stop=halte_tujuan,
                                 weights=weights_dict),
-                            "ASTAR": lambda: find_route_with_astar(
+                            "ASTAR": lambda: find_path_with_astar(
                                 G, stop_to_routes,
                                 start_stop=halte_asal, end_stop=halte_tujuan,
                                 weights=weights_dict, speed_kmh=param_speed),
-                            "HACO": lambda: find_route_with_haco(
+                            "HACO": lambda: find_path_with_haco(
                                 G, stop_to_routes,
                                 start_stop=halte_asal, end_stop=halte_tujuan,
                                 weights=weights_dict),
@@ -262,7 +262,7 @@ def index(request):
             hasil = {"error": "Input tidak valid. Cek ulang form."}
             print("error: Input tidak valid. Cek ulang form.")
 
-        # redirect after POST so refresh does not rerun route finding.
+        # redirect after POST so refresh does not rerun path finding.
         request.session["hasil"] = hasil
         request.session["form_data"] = {
             "halte_asal": request.POST.get("halte_asal", ""),

@@ -6,7 +6,7 @@ from .utils import (
     get_boarding_fare,
 )
 # -- Gurobi Solver --
-def find_route_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
+def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
     """
     Find optimal route using Gurobi MILP solver.
     

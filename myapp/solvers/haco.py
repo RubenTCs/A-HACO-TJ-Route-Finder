@@ -215,7 +215,7 @@ def _update_trail_matrix(G, path, F_a, tau, rho, w_t, w_c, w_p):
 # Main solver
 # ==========================================================
 
-def find_route_with_haco(
+def find_path_with_haco(
     G, stop_to_routes, start_stop, end_stop, weights,
     n_ants=HACO_N_ANTS,
     max_iter=HACO_MAX_ITER,
