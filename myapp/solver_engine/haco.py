@@ -38,11 +38,10 @@ def _best_edge_key(edict, w_t, w_c, w_p):
 
 
 def _path_z(G, path, w_t, w_c, w_p):
-    """Objective Z for a path (eq 2.1, normalized)."""
+    """Objective Z for a path (Pers. 2.1, normalized)."""
     if not path:
         return 0.0
-    # Boarding fare for first leg travel edges have Biayaij_norm=0,
-    # so without this paths starting on different fare classes look equal.
+    # Boarding fare for first leg travel edges have Biayaij_norm=0, so without this paths starting on different fare classes look equal.
     _, boarding_norm = get_boarding_fare(G, path[0])
     z = w_c * boarding_norm
     for u, v in zip(path, path[1:]):
@@ -54,7 +53,7 @@ def _path_z(G, path, w_t, w_c, w_p):
 
 
 def _roulette(probs):
-    """Roulette-wheel selection; uniform fallback when total <= 0."""
+    """Roulette-wheel selection uniform fallback when total <= 0."""
     total = sum(probs)
     if total <= 0:
         return random.randrange(len(probs))
@@ -72,27 +71,25 @@ def _roulette(probs):
 # ==========================================================
 
 def _construct_path(G, start_node, end_nodes_set, tau, eta, alpha, beta, tau_0,
-                    w_t, w_c, w_p, seed_path=None):
+                    w_t, w_c, w_p, jalur_awal=None):
     """
     Construct a path from start_node toward any node in end_nodes_set.
 
-    Dead-end backtracking: on a dead-end
-    we pop back and add the node to `forbidden` so it can't be re-chosen later.
-    Without this, an ant locked onto a corridor that doesn't reach the goal
-    would simply break and produce no solution.
+    Dead-end backtracking: on a dead-end pop back and add the node to `forbidden` so it can't be re-chosen later.
 
-    With seed_path: an existing partial path is inherited as the starting point for mutation.
-    The ant continues from the last node of seed_path, and backtracking is bounded so
-    inherited nodes stay pinned and cannot be altered.
+    With jalur_awal: potongan jalur (path[:k] sampai node perantara) diwariskan
+    sebagai titik mulai mutasi (Bab 2.6.2). Semut melanjutkan dari node perantara
+    (jalur_awal[-1]), dan backtracking dibatasi agar bagian jalur awal yang
+    dipertahankan tidak bisa diubah.
     """
-    if seed_path is not None:
-        path = list(seed_path)
+    if jalur_awal is not None:
+        path = list(jalur_awal)
         visited = set(path)
-        seed_floor = len(seed_path)
+        batas_jalur_awal = len(jalur_awal)
     else:
         path = [start_node]
         visited = {start_node}
-        seed_floor = 1
+        batas_jalur_awal = 1
 
     forbidden = set()
 
@@ -104,8 +101,8 @@ def _construct_path(G, start_node, end_nodes_set, tau, eta, alpha, beta, tau_0,
         candidates = _get_candidates(G, current, visited, forbidden, w_t, w_c, w_p)
 
         if not candidates:
-            # Dead-end. Pop back unless we're at the start / seed boundary.
-            if len(path) <= seed_floor:
+            # Dead-end. Pop back kecuali sudah di batas jalur awal (node perantara).
+            if len(path) <= batas_jalur_awal:
                 break
             forbidden.add(current)
             visited.discard(current)
@@ -133,7 +130,7 @@ def _get_candidates(G, current, visited, forbidden, w_t, w_c, w_p):
 
 
 def _sample_next(candidates, current, tau, eta, alpha, beta, tau_0):
-    """Probabilistic step using P_ijk ∝ τ^α · η^β (eq 2.14)."""
+    """Probabilistic step using P_ijk ∝ τ^α · η^β (Pers. 2.14)."""
     probs = [
         tau.get((current, nb, k), tau_0) ** alpha *
         eta.get((current, nb, k), 1.0) ** beta
@@ -166,9 +163,10 @@ def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
                          tau, eta, alpha, beta, tau_0,
                          w_t, w_c, w_p, max_attempts=20):
     """
-    while ant's path exists in tabu list do { pick node, rebuild }.
+    while ant's path exists in tabu list do { pilih node perantara, rebuild }.
     Keep mutating until path is no longer in tabu list (or attempts exhausted)
-    Eq 2.19: cut index k ~ Poisson(L/3), seed = path[:k], construct path from there.
+    Pers. 2.19: posisi node perantara k ~ Poisson(L/3), jalur_awal = path[:k],
+    konstruksi ulang dari node perantara hingga tujuan.
     """
     attempts = 0
     while tuple(path) in tabu_paths and attempts < max_attempts:
@@ -176,10 +174,10 @@ def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
             break
         L = len(path)
         k = int(np.random.poisson(max(L / 3.0, 1e-9)))
-        cut = max(1, min(k, L - 1))
-        seed = path[:cut]
-        mutant = _construct_path(G, seed[-1], end_nodes_set, tau, eta,
-                                 alpha, beta, tau_0, w_t, w_c, w_p, seed_path=seed)
+        pos_perantara = max(1, min(k, L - 1))
+        jalur_awal = path[:pos_perantara]
+        mutant = _construct_path(G, jalur_awal[-1], end_nodes_set, tau, eta,
+                                 alpha, beta, tau_0, w_t, w_c, w_p, jalur_awal=jalur_awal)
         if mutant and mutant[-1] in end_nodes_set:
             path = mutant
             F_a = _path_z(G, path, w_t, w_c, w_p)
@@ -189,19 +187,18 @@ def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
 
 def _update_trail_matrix(G, path, F_a, tau, rho, w_t, w_c, w_p):
     """
-    Per-ant trail matrix update — literal eq 2.15 + 2.16 with A_ijk = {this ant}:
-        τ_ijk(t) = (1-ρ)·τ_ijk(t-1) + Δτ_ijk
-        Δτ_ijk = 1/F_a   if edge (i,j,k) in this ant's path
-               = 0        otherwise
+    Per-ant trail matrix update 
+    Pers. 2.15-2.16:
+
     Called after each ant per Fig 2.8 (inside per-ant loop). Note this evaporates
     ALL E edges every ant, so the iteration is O(n_ants · E) — slow on big graphs,
     but faithful to the pseudocode.
     """
-    # Evaporation across all edges (eq 2.15 first term)
+    # Evaporation across all edges (Pers. 2.15 first term)
     for key in tau:
         tau[key] = max(tau[key] * (1.0 - rho), 1e-10)
 
-    # Deposit on edges traversed by this ant (eq 2.16)
+    # Deposit on edges traversed by this ant (Pers. 2.16)
     for u, v in zip(path, path[1:]):
         edict = G.get_edge_data(u, v)
         if not edict:
@@ -219,9 +216,9 @@ def find_path_with_haco(
     G, stop_to_routes, start_stop, end_stop, weights,
     n_ants=HACO_N_ANTS,
     max_iter=HACO_MAX_ITER,
-    alpha=HACO_ALPHA,                          # pheromone exponent (eq 2.14)
-    beta=HACO_BETA,                            # heuristic exponent (eq 2.14) — Table 1 of AlHousrya 2024
-    rho=HACO_RHO,                              # evaporation rate (eq 2.15)
+    alpha=HACO_ALPHA,                          # pheromone exponent (Pers. 2.14)
+    beta=HACO_BETA,                            # heuristic exponent (Pers. 2.14) — Table 1 of AlHousrya 2024
+    rho=HACO_RHO,                              # evaporation rate (Pers. 2.15)
     tau_0=HACO_TAU_0,                          # initial pheromone — 2.6.2: τ_ijk(0) = 1
     max_no_improve_iter=HACO_MAX_NO_IMPROVE_ITER,  # per-ant non-improvement count (pseudocode noImprovementIterations)
     tabu_size=HACO_TABU_SIZE,                  # fraction of solutions sampled into Tabu List
@@ -259,7 +256,7 @@ def find_path_with_haco(
     w_c = float(weights.get('biaya', 0))
     w_p = float(weights.get('transit', 0))
 
-    # η(i,j,k) = 1 / edge_cost — cheaper edges get higher attractiveness (eq 2.17–2.18)
+    # η(i,j,k) = 1 / edge_cost — cheaper edges get higher attractiveness (Pers. 2.17-2.18)
     eta = {}
     for u, v, key, data in G.edges(keys=True, data=True):
         eta[(u, v, key)] = 1.0 / (_edge_cost(data, w_t, w_c, w_p) + 1e-9)

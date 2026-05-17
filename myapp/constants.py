@@ -7,13 +7,12 @@ P_MAX = 5.0      # max reasonable number of transfers
 
 # Params for graph construction (graph.py)
 DEFAULT_SPEED_KMH = 25.0          
-INTRA_STOP_TRANSFER_MIN = 5.0     
 MAX_WAIT_MIN = 10.0               
 WALKING_SPEED_KMH = 5.0           
 WALKING_RADIUS_M = 400            
 
 # Approx km per degree of latitude (40,075 km circumference / 360°). Used to turn
-# WALKING_RADIUS_M into a degree radius for the KD-tree spatial query.
+# WALKING_RADIUS_M into a degree radius for the KD-tree spatial query
 KM_PER_DEGREE = 111.0
 
 # Konfigurasi kelas tarif (views.py)

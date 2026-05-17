@@ -8,7 +8,7 @@ from scipy.spatial import cKDTree
 from ..gtfs_helper import gtfsHelper
 from ..constants import (
     T_MAX, C_MAX, P_MAX,
-    DEFAULT_SPEED_KMH, INTRA_STOP_TRANSFER_MIN, MAX_WAIT_MIN,
+    DEFAULT_SPEED_KMH, MAX_WAIT_MIN,
     WALKING_SPEED_KMH, WALKING_RADIUS_M, KM_PER_DEGREE,
     FLAT_FARE_CLASSES, FREE_FARE_CLASSES,
     ECONOMY_FARE_CLASSES, ECONOMY_FARE_PRICE,
@@ -47,13 +47,9 @@ def haversine(lon1, lat1, lon2, lat2):
     c = 2 * asin(sqrt(a))
     return 6371 * c  # in kilometers
 
-# -- Construct Graph --
-# Normalization constants (T_MAX, C_MAX, P_MAX) live in myapp.constants.
-
 def construct_graph_with_costs(depart_date=None,
                                depart_time=None,
                                speed_kmh=DEFAULT_SPEED_KMH,
-                               intra_stop_transfer_min=INTRA_STOP_TRANSFER_MIN,
                                max_wait_min=MAX_WAIT_MIN,
                                walking_speed_kmh=WALKING_SPEED_KMH,
                                walking_radius_m=WALKING_RADIUS_M):
@@ -61,9 +57,6 @@ def construct_graph_with_costs(depart_date=None,
     Build the multigraph from GTFS data.
 
     speed_kmh: average vehicle speed used to derive Waktuij from shape_dist_traveled.
-    intra_stop_transfer_min: fixed platform-walk penalty for same-stop route transfers.
-    walk_overhead_min: fixed overhead (finding stop, crossing street) added on top of
-        haversine walk time for cross-stop walking and GTFS transfer edges.
     max_wait_min: cap on expected boarding wait (headway / 2) applied to all transfer
         and walk edges. Routes with no headway data use this value as the wait.
     walking_speed_kmh: walking speed used to derive Waktuij for inter-stop GTFS transfers.
@@ -139,11 +132,6 @@ def construct_graph_with_costs(depart_date=None,
                 route_to_fare_id[str(route_id)] = str(top["fare_id"])
 
         # ------- Discount/Pricing logic ----------
-        # Fare-class transfer pricing + time-of-day economy discount config live
-        # in myapp.constants (FLAT_FARE_CLASSES, FREE_FARE_CLASSES,
-        # ECONOMY_FARE_CLASSES, ECONOMY_FARE_PRICE, ECONOMY_DISCOUNT_START/END).
-
-        # Time discount window (default 05:00 - 07:00)
         is_economy_discount_window = ECONOMY_DISCOUNT_START <= depart_time < ECONOMY_DISCOUNT_END
         if is_economy_discount_window:
             for fid in list(fare_id_to_price.keys()): # Ubah 3500 ke 2000 (FP, FP2)
@@ -248,9 +236,7 @@ def construct_graph_with_costs(depart_date=None,
             ).copy()
 
             # ubah headway_secs ke numeric, fallback: nan
-            # gtfs_kit infers headway_secs as Int16, which overflows for values
-            # > 32767 (e.g. 52700 => -12836). Cast to float first, then recover
-            # original by adding 65536 to negatives.
+            # gtfs_kit infers headway_secs as Int16, Fix Error: Cast to float first, then recover original by adding 65536 to negatives.
             freq_with_route["headway_secs"] = pd.to_numeric(
                 freq_with_route["headway_secs"], errors="coerce"
             ).astype("float64")
@@ -352,8 +338,7 @@ def construct_graph_with_costs(depart_date=None,
                         node1 = (stop_name, routes_list[i])
                         node2 = (stop_name, routes_list[j])
 
-                        # Charge fare based on the fare class of the destination route,
-                        # with FP/FP2 free transfer credit and GR always free.
+                        # Charge fare based on the fare class of the destination route,with FP/FP2 free transfer credit and GR always free.
                         route_i = str(routes_list[i])
                         route_j = str(routes_list[j])
                         fare_id_i = route_to_fare_id.get(route_i)
@@ -365,9 +350,9 @@ def construct_graph_with_costs(depart_date=None,
                         # Use unique transfer key
                         transfer_key = f"transfer_{routes_list[i]}_to_{routes_list[j]}"
                         
-                        # Platform walk + expected wait for next bus on destination route.
-                        wait_ij = intra_stop_transfer_min + boarding_wait_min(routes_list[j])
-                        wait_ji = intra_stop_transfer_min + boarding_wait_min(routes_list[i])
+                        # expected wait for next bus on destination route.
+                        wait_ij = boarding_wait_min(routes_list[j])
+                        wait_ji = boarding_wait_min(routes_list[i])
 
                         # Add transfer edge
                         G.add_edge(node1, node2, key=transfer_key,
@@ -423,7 +408,6 @@ def construct_graph_with_costs(depart_date=None,
                 from_name = from_info["stop_name"]
                 to_name = to_info["stop_name"]
 
-                # Same-name pairs are already linked by the intra-stop transfer block.
                 if from_name == to_name:
                     continue
 

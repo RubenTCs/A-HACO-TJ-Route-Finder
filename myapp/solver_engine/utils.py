@@ -35,7 +35,8 @@ def get_boarding_fare(G, node):
 def haversine(lon1, lat1, lon2, lat2):
     """Straight-line distance in km between two (lon, lat) points."""
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-    dlon, dlat = lon2 - lon1, lat2 - lat1
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1
     a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
     return 6371 * 2 * asin(sqrt(a))
 
@@ -324,8 +325,8 @@ def build_path_coordinates(detailed_journey, path):
     """Build path coordinates from GTFS shapes/stops and journey steps.
 
     Returns a dict:
-        path_coordinates  – flat [[lat,lon],...] for the whole route (fallback use)
-        path_segments     – [{coords, color, koridor},...] one entry per travel step
+        path_coordinates  - flat [[lat,lon],...] for the whole route (fallback use)
+        path_segments     -[{coords, color, koridor},...] one entry per travel step
     """
     path_coordinates = []
     path_segments = []

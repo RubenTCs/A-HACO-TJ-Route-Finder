@@ -1,25 +1,23 @@
-import os
 from .forms import PathForm
-from .solvers.gurobi import (
+from .solver_engine.gurobi import (
     find_path_with_gurobi
 )
-from .solvers.astar import (
+from .solver_engine.astar import (
     find_path_with_astar
 )
-from .solvers.haco import (
+from .solver_engine.haco import (
     find_path_with_haco
 )
-from .graph_making.graph import (
+from .solver_engine.graph import (
     construct_graph_with_costs,
 )
-from .solvers.utils import compute_walking_only_route
+from .solver_engine.utils import compute_walking_only_route
 from .gtfs_helper import gtfsHelper
 from .log.excel_logger import append_search, read_log
 from . import constants as C
 from datetime import datetime, time
 from time import perf_counter
 from django.shortcuts import render, redirect
-from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
 HALTE_NAMES_CACHE = []
@@ -45,8 +43,8 @@ def getHalteList(request):
     filtered = (starts_with + contains_word)[:C.MAX_HALTE_SUGGESTIONS]
     return JsonResponse(filtered, safe=False)
 
+#Views
 def index(request):
-    # Read-and-clear flash-like data for the GET after redirect.
     hasil = request.session.pop("hasil", {})
     form_initial = request.session.pop("form_data", None)
     form = PathForm(initial=form_initial) if form_initial else PathForm()
@@ -102,7 +100,7 @@ def index(request):
                         param_speed = C.SPEED_NIGHT_HOUR_KMH # Kecepatan rata-rata km/h
 
                     # --- Preference ---
-                    # TODO: Harus diganti nanti saat pengujian
+                    # NOTE: Bisa diganti ganti untuk saat pengujian
                     if preferensi == "cepat":
                         preferensi_label = "Paling Cepat"
                         weights_dict = dict(C.WEIGHTS_CEPAT)
