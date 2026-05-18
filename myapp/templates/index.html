@@ -10,7 +10,8 @@
                 <div class="brand-name">Transjakarta &middot; Route Finder</div>
             </div>
         </div>
-        <div class="topbar-actions">
+        {% comment %} Hide Log (karena hanya diperuntukkan untuk pengujian) {% endcomment %}
+        <div class="topbar-actions" style="display: none;"> 
             <a href="{% url 'log' %}" class="nav-btn">Log &rarr;</a>
         </div>
     </div>
