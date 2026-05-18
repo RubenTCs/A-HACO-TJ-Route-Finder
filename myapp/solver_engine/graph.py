@@ -514,7 +514,7 @@ def construct_graph_with_costs(depart_date=None,
             walk_base_min = walk_time_min
 
             # One physical stop pair => many node pairs (one per route combination).
-            # We add both directions since walking is bidirectional.
+            # add both directions since walking is bidirectional.
             for route_a in stop_to_routes.get(name_a, ()):
                 for route_b in stop_to_routes.get(name_b, ()):
                     if route_a == route_b:
