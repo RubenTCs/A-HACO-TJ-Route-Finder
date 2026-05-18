@@ -157,7 +157,7 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
             start_nodes[0],
         )
 
-        # Walk the linked list from start until we run out of edges.
+        # Walk the linked list from start until run out of edges.
         path = [actual_start]
         current = actual_start
         while current in next_of:
