@@ -1,0 +1,25 @@
+services:
+  web:
+    build: .
+    container_name: haco-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_DEBUG=${DJANGO_DEBUG}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - GRB_WLSACCESSID=${GRB_WLSACCESSID}
+      - GRB_WLSSECRET=${GRB_WLSSECRET}
+      - GRB_LICENSEID=${GRB_LICENSEID}
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: haco-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    depends_on:
+      - web
