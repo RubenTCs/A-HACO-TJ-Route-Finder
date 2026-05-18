@@ -5,7 +5,7 @@ Website pencarian rute armada Transjakarta yang memungkinkan pengguna memilih pr
 ## Kebutuhan Sistem
 
 | Komponen | Minimum | Direkomendasikan |
-|----------|---------|------------------|
+| --- | --- | --- |
 | Prosesor | Intel Core i3 | Intel Core i5 ke atas |
 | RAM | 4 GB | 8 GB |
 | Penyimpanan | 2 GB ruang kosong | 5 GB ruang kosong |
@@ -88,3 +88,4 @@ Jika halaman utama muncul, instalasi berhasil.
 
 - Solver **MILP** memerlukan instalasi Gurobi Optimizer 11.0+ beserta lisensinya. Solver **A\*** dan **HACO** dapat dijalankan tanpa Gurobi.
 - Koneksi internet diperlukan untuk memuat tile peta.
+- Hyperparameter algoritma **HACO** (jumlah semut, iterasi, evaporasi, eksponen pheromone/heuristik, dll.) dapat disesuaikan jika diperlukan pada [myapp/constants.py](myapp/constants.py) — lihat bagian `HACO_*` (mis. `HACO_N_ANTS`, `HACO_MAX_ITER`, `HACO_ALPHA`, `HACO_BETA`, `HACO_RHO`).
