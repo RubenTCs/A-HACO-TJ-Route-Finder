@@ -127,4 +127,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SECURE_REFERRER_POLICY = 'strict-origin'
 
-CSRF_TRUSTED_ORIGINS = ['https://tjrouteopt.scorkinntest.my.id']
+CSRF_TRUSTED_ORIGINS = [
+    'https://tjrouteopt.scorkinntest.my.id',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+]

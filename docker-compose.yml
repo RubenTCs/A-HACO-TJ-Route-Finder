@@ -7,14 +7,12 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      - ./gurobi.lic:/opt/gurobi/gurobi.lic:ro
     environment:
       - PYTHONUNBUFFERED=1
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - DJANGO_DEBUG=${DJANGO_DEBUG}
       - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
-      - GRB_WLSACCESSID=${GRB_WLSACCESSID}
-      - GRB_WLSSECRET=${GRB_WLSSECRET}
-      - GRB_LICENSEID=${GRB_LICENSEID}
 
   tunnel:
     image: cloudflare/cloudflared:latest
