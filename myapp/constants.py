@@ -48,7 +48,7 @@ WEIGHTS_MIN_TRANSIT = {"waktu": 0.1, "biaya": 0.1, "transit": 0.8}
 WEIGHTS_SEIMBANG = {"waktu": 1 / 3, "biaya": 1 / 3, "transit": 1 / 3}
 
 # Hyperparameter for HACO (solvers/haco.py)
-HACO_N_ANTS = 30
+HACO_N_ANTS = 60
 HACO_MAX_ITER = 50
 HACO_ALPHA = 1.0                 # pheromone exponent (eq 2.14)
 HACO_BETA = 1.0                  # heuristic exponent (eq 2.14)

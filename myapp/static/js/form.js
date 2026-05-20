@@ -42,10 +42,6 @@ document.addEventListener("DOMContentLoaded", function () {
         halteAwalInput.addEventListener("input", handleInput);
         halteTujuanInput.addEventListener("input", handleInput);
 
-        // Track focus, useful if we add UI later that needs to know the active input.
-        let activeInput = halteAwalInput;
-        halteAwalInput.addEventListener("focus", () => { activeInput = halteAwalInput; });
-        halteTujuanInput.addEventListener("focus", () => { activeInput = halteTujuanInput; });
     }
 
     // ---- Submit / solver-running indicator --------------------------------
