@@ -8,7 +8,7 @@ from scipy.spatial import cKDTree
 from ..gtfs_helper import gtfsHelper
 from ..constants import (
     T_MAX, C_MAX, P_MAX,
-    DEFAULT_SPEED_KMH, MAX_WAIT_MIN,
+    DEFAULT_SPEED_KMH, MAX_WAIT_MIN, BUS_STOP_SECS,
     WALKING_SPEED_KMH, WALKING_RADIUS_M, KM_PER_DEGREE,
     FLAT_FARE_CLASSES, FREE_FARE_CLASSES,
     ECONOMY_FARE_CLASSES, ECONOMY_FARE_PRICE,
@@ -51,6 +51,7 @@ def construct_graph_with_costs(depart_date=None,
                                depart_time=None,
                                speed_kmh=DEFAULT_SPEED_KMH,
                                max_wait_min=MAX_WAIT_MIN,
+                               bus_stop_secs=BUS_STOP_SECS,
                                walking_speed_kmh=WALKING_SPEED_KMH,
                                walking_radius_m=WALKING_RADIUS_M):
     """
@@ -308,7 +309,7 @@ def construct_graph_with_costs(depart_date=None,
                     )
 
                 # Travel time derived from distance and speed (Tabel 2.1).
-                travel_time_min = (dist_km / speed_kmh) * 60
+                travel_time_min = (dist_km / speed_kmh) * 60 + (bus_stop_secs / 60.0)
 
                 G.add_edge(node1, node2, key=route_id,
                           type="travel",
@@ -569,7 +570,6 @@ def construct_graph_with_costs(depart_date=None,
         print(f"Graph built successfully! ({_elapsed:.2f}s)")
         print(f"Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}")
         print(f"Stops with multiple routes: {sum(1 for r in stop_to_routes.values() if len(r) > 1)}")
-        
         return G, stop_to_routes
         
     except Exception as e:
