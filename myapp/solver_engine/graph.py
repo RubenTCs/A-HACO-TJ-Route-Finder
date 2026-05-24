@@ -149,16 +149,33 @@ def construct_graph_with_costs(depart_date=None,
         G.graph['fare_id_to_price'] = fare_id_to_price # {"FP": 3500.0, "FP2": 3500.0, "GR": 0.0, "PP": 20000.0}
 
         def transfer_fare(prev_fare_id, next_fare_id):
-            """Cost (IDR) of boarding `next_fare_id` after a leg priced as `prev_fare_id`."""
+            """Cost (IDR) of boarding `next_fare_id` after a leg priced as `prev_fare_id`.
+
+            Used for in-system transfers (same halte or seamless transfers.txt walkway)
+            where the passenger stays in the paid zone — no tap-out — so FP/FP2 keep
+            their free transfer credit.
+            """
             if not next_fare_id:
                 return 0.0
-            if next_fare_id in FREE_FARE_CLASSES: 
+            if next_fare_id in FREE_FARE_CLASSES:
                 # GR route
                 return 0.0
             if next_fare_id in FLAT_FARE_CLASSES and prev_fare_id in FLAT_FARE_CLASSES:
                 # Free transfer credit between FP/FP2 routes.
                 return 0.0
             # Other route selain (FP, FP2, GR)
+            return float(fare_id_to_price.get(next_fare_id, 0.0))
+
+        def walk_boarding_fare(next_fare_id):
+            """Cost (IDR) to board `next_fare_id` after a street-level walk.
+
+            A walk between non-connected halte means tap-out then tap-in, which ends
+            the integrated journey — so the full destination fare is charged with NO
+            FP/FP2 transfer credit (e.g. FP -> walk -> FP = Rp 3,500 again). GR stays
+            free because boarding a Mikrotrans costs nothing.
+            """
+            if not next_fare_id:
+                return 0.0
             return float(fare_id_to_price.get(next_fare_id, 0.0))
         
         # ===============================================
@@ -529,8 +546,8 @@ def construct_graph_with_costs(depart_date=None,
 
                     fare_id_a = route_to_fare_id.get(str(route_a))
                     fare_id_b = route_to_fare_id.get(str(route_b))
-                    walk_cost_ab = transfer_fare(fare_id_a, fare_id_b)
-                    walk_cost_ba = transfer_fare(fare_id_b, fare_id_a)
+                    walk_cost_ab = walk_boarding_fare(fare_id_b)
+                    walk_cost_ba = walk_boarding_fare(fare_id_a)
 
                     # key forward
                     key_fwd = f"walk_{name_a}_{route_a}_to_{name_b}_{route_b}"
