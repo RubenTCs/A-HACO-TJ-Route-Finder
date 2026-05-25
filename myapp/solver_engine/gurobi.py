@@ -81,8 +81,6 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         # model.update()
 
         # (2.1) Objective: min sum((w_t*t_ijk_norm + w_c*c_ijk_norm + w_p*p_ijk) * x_ijk)
-        # First-ride fare lives on the travel edges leaving the origin (set by
-        # apply_terminal_walk_policy), so the edge sum already captures every boarding.
         obj_expr = gp.quicksum(
             (
                 w_t * G.get_edge_data(u, v, key).get('Waktuij_norm', 0) +
@@ -143,7 +141,7 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         # Build map: each node has at most one outgoing active edge by flow conservation, so next_of[u] = v is well-defined.
         next_of = {}
         for u, v, key in G.edges(keys=True):
-            if x[(u, v, key)].X > BIN_THRESHOLD: # Pembulatan untuk variabel biner
+            if x[(u, v, key)].X > BIN_THRESHOLD: # Pembulatan untuk variabel biner (harusnya 0 atau 1, tapi bisa jadi 0.9999 atau 1.0001 karena toleransi numerik Gurobi)
                 next_of[u] = v
 
         # Find actual start node from x_source.

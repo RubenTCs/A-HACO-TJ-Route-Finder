@@ -54,8 +54,7 @@ def _astar_search(G, start_nodes, end_nodes_set, heuristic, w_t, w_c, w_p):
 
     # --- 1. Inisialisasi ---
     # Setiap start node (satu per rute di halte asal) dimasukkan ke open list.
-    # g(n) awal = 0; biaya naik bus pertama sudah ditempel ke travel edge yang
-    # keluar dari halte asal oleh apply_terminal_walk_policy().
+    # g(n) awal = 0
     # f(n) awal = g(n) + h(n), di mana h(n) = estimasi sisa waktu ke tujuan.
     for s in start_nodes:
         g_score[s] = 0.0
@@ -67,9 +66,9 @@ def _astar_search(G, start_nodes, end_nodes_set, heuristic, w_t, w_c, w_p):
     while open_set:
         # --- 2. Pemilihan node ---
         # Ambil node dengan f(n) terkecil dari open list
-        # Pindahkan ke closed list agar tidak diproses ulang.
         _, _, current = heapq.heappop(open_set)
 
+        # Pindahkan ke closed list agar tidak diproses ulang.
         if current in closed_set:
             continue
         closed_set.add(current)

@@ -9,7 +9,7 @@ from ..gtfs_helper import gtfsHelper
 from ..constants import (
     T_MAX, C_MAX, P_MAX,
     DEFAULT_SPEED_KMH, MAX_WAIT_MIN, BUS_STOP_SECS,
-    WALKING_SPEED_KMH, WALKING_RADIUS_M, KM_PER_DEGREE,
+    WALKING_SPEED_KMH, WALKING_RADIUS_M,
     FLAT_FARE_CLASSES, FREE_FARE_CLASSES,
     ECONOMY_FARE_CLASSES, ECONOMY_FARE_PRICE,
     ECONOMY_DISCOUNT_START, ECONOMY_DISCOUNT_END,
@@ -500,14 +500,14 @@ def construct_graph_with_costs(depart_date=None,
                 existing_pairs.add(frozenset((u[0], v[0])))
 
         # Build a KD-Tree from all stop coordinates for fast spatial lookups.
-        # A KD-Tree partitions points in space so that "find all pairs within distance R" runs in O(n log n) instead of O(n²) brute-force checks.
+        # A KD-Tree partitions points in space so that "find all pairs within distance R" runs in O(n log n)
         stop_names = list(stop_coords.keys())
         coords_array = np.array([(lat, lon) for lat, lon in stop_coords.values()])
 
-        # Convert walking radius from km to degrees (≈ KM_PER_DEGREE km per degree of latitude).
-        radius_deg = walking_radius_km / KM_PER_DEGREE
+        # Convert walking radius from km to degrees (equals around 111 km per degree of latitude. Approx km per degree of latitude (40,075 km circumference / 360°)).
+        radius_deg = walking_radius_km / 111.0
 
-        # query_pairs returns all (i, j) index pairs whose distance ≤ radius_deg.
+        # query_pairs returns all (i, j) index pairs whose distance <= radius_deg.
         # Each pair is returned once (i < j), so no duplicates.
         tree = cKDTree(coords_array)
         candidate_pairs = tree.query_pairs(r=radius_deg)

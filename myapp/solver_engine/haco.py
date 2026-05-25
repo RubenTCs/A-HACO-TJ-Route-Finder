@@ -255,11 +255,11 @@ def find_path_with_haco(
     w_c = float(weights.get('biaya', 0))
     w_p = float(weights.get('transit', 0))
 
-    # η(i,j,k) = 1 / edge_cost — cheaper edges get higher attractiveness (Pers. 2.17-2.18)
+    # herustik (i,j,k) = 1 / edge_cost (Pers. 2.17-2.18)
     eta = {}
     for u, v, key, data in G.edges(keys=True, data=True):
         eta[(u, v, key)] = 1.0 / (_edge_cost(data, w_t, w_c, w_p) + 1e-9)
-    # Initial pheromone trails —  2.6.2: τ_ijk(0) = matrix of ones
+    # Initial pheromone trails  2.6.2: tau_ijk(0) = Matrix of one
     tau = {(u, v, key): tau_0 for u, v, key in G.edges(keys=True)}
 
     best_path, best_z = None, float('inf')
@@ -274,7 +274,7 @@ def find_path_with_haco(
         # --- Inner loop: per ant ---
         ant_index = 0
         while ant_index < n_ants:
-            # 1. Create an ant — construct a path from a random start node
+            # 1. Create an ant — construct a path from a random start node to any end node.
             start = random.choice(start_nodes)
             path = _construct_path(G, start, end_nodes_set, tau, eta,
                                    alpha, beta, tau_0, w_t, w_c, w_p)
@@ -293,7 +293,7 @@ def find_path_with_haco(
 
             iteration_solutions.append((path, F_a))
 
-            # 4a. Local trail update (per ant, rho rate — diversifikasi)
+            # 4. trail update (per ant)
             _update_trail(G, path, F_a, tau, rho, w_t, w_c, w_p)
 
             # 5. Improvement check (per ant)
@@ -307,9 +307,7 @@ def find_path_with_haco(
                 no_improvement += 1
 
             ant_index += 1
-            # Early stop, disable 
-            if no_improvement >= max_no_improve_iter:
-                break
+
 
         iteration += 1
 

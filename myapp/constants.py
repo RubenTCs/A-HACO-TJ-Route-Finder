@@ -12,10 +12,6 @@ WALKING_SPEED_KMH = 5.0
 WALKING_RADIUS_M = 400    
 BUS_STOP_SECS = 10.0              # additional time penalty for bus stops (boarding/alighting)        
 
-# Approx km per degree of latitude (40,075 km circumference / 360°). Used to turn
-# WALKING_RADIUS_M into a degree radius for the KD-tree spatial query
-KM_PER_DEGREE = 111.0
-
 # Konfigurasi kelas tarif (views.py)
 FLAT_FARE_CLASSES = {"FP", "FP2"}   # flat-fare classes with mutual free-transfer credit
 FREE_FARE_CLASSES = {"GR"}          # always-free fare classes
