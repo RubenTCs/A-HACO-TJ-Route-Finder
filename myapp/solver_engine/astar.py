@@ -6,7 +6,6 @@ from .utils import (
     calculate_final_metrics,
     build_detailed_journey,
     build_path_coordinates,
-    get_boarding_fare,
 )
 from ..constants import (
     T_MAX,
@@ -55,11 +54,11 @@ def _astar_search(G, start_nodes, end_nodes_set, heuristic, w_t, w_c, w_p):
 
     # --- 1. Inisialisasi ---
     # Setiap start node (satu per rute di halte asal) dimasukkan ke open list.
-    # g(n) awal = w_c * boarding_fare_norm (biaya naik bus pertama, bukan 0).
+    # g(n) awal = 0; biaya naik bus pertama sudah ditempel ke travel edge yang
+    # keluar dari halte asal oleh apply_terminal_walk_policy().
     # f(n) awal = g(n) + h(n), di mana h(n) = estimasi sisa waktu ke tujuan.
     for s in start_nodes:
-        _, boarding_norm = get_boarding_fare(G, s)
-        g_score[s] = w_c * boarding_norm          # g(n) = w_c * c_ijk
+        g_score[s] = 0.0
         heapq.heappush(open_set, (g_score[s] + heuristic(s), counter, s))  # f(n) = g(n) + h(n)
         counter += 1
 

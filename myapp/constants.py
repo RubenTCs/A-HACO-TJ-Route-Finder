@@ -9,7 +9,8 @@ P_MAX = 5.0      # max reasonable number of transfers
 DEFAULT_SPEED_KMH = 25.0          
 MAX_WAIT_MIN = 10.0               
 WALKING_SPEED_KMH = 5.0           
-WALKING_RADIUS_M = 400            
+WALKING_RADIUS_M = 400    
+BUS_STOP_SECS = 10.0              # additional time penalty for bus stops (boarding/alighting)        
 
 # Approx km per degree of latitude (40,075 km circumference / 360°). Used to turn
 # WALKING_RADIUS_M into a degree radius for the KD-tree spatial query
@@ -48,14 +49,14 @@ WEIGHTS_MIN_TRANSIT = {"waktu": 0.1, "biaya": 0.1, "transit": 0.8}
 WEIGHTS_SEIMBANG = {"waktu": 1 / 3, "biaya": 1 / 3, "transit": 1 / 3}
 
 # Hyperparameter for HACO (solvers/haco.py)
-HACO_N_ANTS = 60
+HACO_N_ANTS = 20
 HACO_MAX_ITER = 50
+HACO_MAX_NO_IMPROVE_ITER = 200   # consecutive iterations without improvement before stopping
+HACO_TAU_0 = 1                   # initial pheromone τ_ijk(0) = 1
 HACO_ALPHA = 1.0                 # pheromone exponent (eq 2.14)
-HACO_BETA = 1.0                  # heuristic exponent (eq 2.14)
-HACO_RHO = 0.1                   # evaporation rate (eq 2.15)
-HACO_TAU_0 = 1.0                 # initial pheromone τ_ijk(0) = 1
-HACO_MAX_NO_IMPROVE_ITER = 200   # per-ant non-improvement stop count
-HACO_TABU_SIZE = 0.7             # fraction of solutions sampled into the tabu list
+HACO_BETA = 2.0                  # heuristic exponent (eq 2.14)
+HACO_RHO = 0.05                      # evaporation rate 
+HACO_TABU_SIZE = 0.9             # fraction of solutions sampled into the tabu list
 
 # UI
 DEFAULT_ROUTE_COLOR = "#2563eb"  # corridor color when GTFS has no route_color (blue)

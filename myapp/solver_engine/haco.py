@@ -6,7 +6,6 @@ from .utils import (
     calculate_final_metrics,
     build_detailed_journey,
     build_path_coordinates,
-    get_boarding_fare,
 )
 from ..constants import (
     HACO_N_ANTS,
@@ -38,12 +37,14 @@ def _best_edge_key(edict, w_t, w_c, w_p):
 
 
 def _path_z(G, path, w_t, w_c, w_p):
-    """Objective Z for a path (Pers. 2.1, normalized)."""
+    """Objective Z for a path (Pers. 2.1, normalized).
+
+    First-ride fare lives on the travel edges leaving the origin (set by
+    apply_terminal_walk_policy), so summing edge costs already includes it.
+    """
     if not path:
         return 0.0
-    # Boarding fare for first leg travel edges have Biayaij_norm=0, so without this paths starting on different fare classes look equal.
-    _, boarding_norm = get_boarding_fare(G, path[0])
-    z = w_c * boarding_norm
+    z = 0.0
     for u, v in zip(path, path[1:]):
         edict = G.get_edge_data(u, v)
         if edict:
@@ -176,6 +177,7 @@ def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
         k = int(np.random.poisson(max(L / 3.0, 1e-9)))
         pos_perantara = max(1, min(k, L - 1))
         jalur_awal = path[:pos_perantara]
+        # print(f"HACO: Mutasi jalur karena tabu (attempt {attempts+1}, pos_perantara={pos_perantara})")
         mutant = _construct_path(G, jalur_awal[-1], end_nodes_set, tau, eta,
                                  alpha, beta, tau_0, w_t, w_c, w_p, jalur_awal=jalur_awal)
         if mutant and mutant[-1] in end_nodes_set:
@@ -185,20 +187,16 @@ def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
     return path, F_a
 
 
-def _update_trail_matrix(G, path, F_a, tau, rho, w_t, w_c, w_p):
-    """
-    Per-ant trail matrix update 
-    Pers. 2.15-2.16:
 
-    Called after each ant per Fig 2.8 (inside per-ant loop). Note this evaporates
-    ALL E edges every ant, so the iteration is O(n_ants · E) — slow on big graphs,
-    but faithful to the pseudocode.
+def _update_trail(G, path, F_a, tau, rho, w_t, w_c, w_p):
     """
-    # Evaporation across all edges (Pers. 2.15 first term)
+    Per-ant local update (ACS-inspired).
+    Evaporates all edges with rate rho, then deposits 1/F_a on this ant's path.
+    Called once per ant — encourages subsequent ants to explore different edges.
+    """
     for key in tau:
         tau[key] = max(tau[key] * (1.0 - rho), 1e-10)
 
-    # Deposit on edges traversed by this ant (Pers. 2.16)
     for u, v in zip(path, path[1:]):
         edict = G.get_edge_data(u, v)
         if not edict:
@@ -217,8 +215,8 @@ def find_path_with_haco(
     n_ants=HACO_N_ANTS,
     max_iter=HACO_MAX_ITER,
     alpha=HACO_ALPHA,                          # pheromone exponent (Pers. 2.14)
-    beta=HACO_BETA,                            # heuristic exponent (Pers. 2.14) — Table 1 of AlHousrya 2024
-    rho=HACO_RHO,                              # evaporation rate (Pers. 2.15)
+    beta=HACO_BETA,                            # heuristic exponent (Pers. 2.14)
+    rho=HACO_RHO,                              # evaporation rate (per ant, inside loop)
     tau_0=HACO_TAU_0,                          # initial pheromone — 2.6.2: τ_ijk(0) = 1
     max_no_improve_iter=HACO_MAX_NO_IMPROVE_ITER,  # per-ant non-improvement count (pseudocode noImprovementIterations)
     tabu_size=HACO_TABU_SIZE,                  # fraction of solutions sampled into Tabu List
@@ -240,7 +238,8 @@ def find_path_with_haco(
     O(n_ants · |E|). Slow on large graphs by design — kept faithful to Fig 2.8.
     """
     print("--- Start find route with HACO ---")
-
+    print(f"HACO params: n_ants={n_ants}, max_iter={max_iter}, alpha={alpha}, beta={beta}, "
+          f"rho={rho}, tau_0={tau_0}, max_no_improve_iter={max_no_improve_iter}, tabu_size={tabu_size}")
     # --- Validate inputs ---
     if start_stop not in stop_to_routes:
         return {"error": f"Halte Asal '{start_stop}' tidak dilayani angkutan pada jam yang dipilih."}
@@ -280,11 +279,7 @@ def find_path_with_haco(
             path = _construct_path(G, start, end_nodes_set, tau, eta,
                                    alpha, beta, tau_0, w_t, w_c, w_p)
 
-            if not path or path[-1] not in end_nodes_set:
-                no_improvement += 1
-                ant_index += 1
-                continue
-
+            # Calculate objective F_a for this path
             F_a = _path_z(G, path, w_t, w_c, w_p)
 
             # 2. Randomly select tabusize x nAnts solutions for the tabu list
@@ -298,27 +293,30 @@ def find_path_with_haco(
 
             iteration_solutions.append((path, F_a))
 
-            # 4. Update trail matrix (per ant)
-            _update_trail_matrix(G, path, F_a, tau, rho, w_t, w_c, w_p)
+            # 4a. Local trail update (per ant, rho rate — diversifikasi)
+            _update_trail(G, path, F_a, tau, rho, w_t, w_c, w_p)
 
             # 5. Improvement check (per ant)
             if F_a < best_z:
                 best_z, best_path = F_a, path
-                no_improvement = 0
-                print(f"HACO: Solusi terbaik di iterasi {iteration+1}, "
+                print(f"HACO: Solusi terbaik di iterasi {iteration+1}, no_improvement={no_improvement}, "
                       f"semut {ant_index+1} (z={best_z:.6f}, "
                       f"t={perf_counter()-t_start:.2f}s)")
+                no_improvement = 0
             else:
                 no_improvement += 1
 
             ant_index += 1
+            # Early stop, disable 
+            if no_improvement >= max_no_improve_iter:
+                break
 
         iteration += 1
 
     if best_path is None:
         return {"error": "Jalur tidak ditemukan oleh HACO."}
 
-    print(f"HACO: Selesai di iterasi {iteration} (z_best={best_z:.6f}, "
+    print(f"HACO: Selesai di iterasi {iteration}, no_improvement {no_improvement}, ant {ant_index} (z_best={best_z:.6f}, "
           f"total t={perf_counter()-t_start:.2f}s)")
 
     # --- Build response payload ---

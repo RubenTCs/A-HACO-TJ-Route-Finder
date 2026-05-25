@@ -3,7 +3,6 @@ from .utils import (
     calculate_final_metrics,
     build_detailed_journey,
     build_path_coordinates,
-    get_boarding_fare,
 )
 # -- Gurobi Solver --
 def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
@@ -82,6 +81,8 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         # model.update()
 
         # (2.1) Objective: min sum((w_t*t_ijk_norm + w_c*c_ijk_norm + w_p*p_ijk) * x_ijk)
+        # First-ride fare lives on the travel edges leaving the origin (set by
+        # apply_terminal_walk_policy), so the edge sum already captures every boarding.
         obj_expr = gp.quicksum(
             (
                 w_t * G.get_edge_data(u, v, key).get('Waktuij_norm', 0) +
@@ -89,12 +90,6 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
                 w_p * G.get_edge_data(u, v, key).get('Transitij_norm', 0)
             ) * x[(u, v, key)]
             for u, v, key in G.edges(keys=True)
-        )
-
-        # Boarding fare for the chosen start node
-        obj_expr += gp.quicksum(
-            w_c * get_boarding_fare(G, s)[1] * x_source[s]
-            for s in start_nodes
         )
         model.setObjective(obj_expr, gp.GRB.MINIMIZE)
 
@@ -157,11 +152,15 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
             start_nodes[0],
         )
 
-        # Walk the linked list from start until run out of edges.
+        # Walk the linked list from start until run out of edges. Guard against cycles: a zero-cost subtour in the solution would otherwise loop forever.
         path = [actual_start]
         current = actual_start
+        visited = {actual_start}
         while current in next_of:
             current = next_of[current]
+            if current in visited:
+                break
+            visited.add(current)
             path.append(current)
         
         # Verify path ends at a valid end node

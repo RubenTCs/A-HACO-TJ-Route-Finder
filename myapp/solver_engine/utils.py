@@ -5,31 +5,69 @@ Utils/Helper
 from math import radians, sin, cos, sqrt, asin
 from ..gtfs_helper import gtfsHelper
 from ..constants import (
+    T_MAX,
     C_MAX,
     DEFAULT_ROUTE_COLOR,
     WALKING_COLOR,
     WALKING_SPEED_KMH,
     WALKING_FALLBACK_MAX_DISTANCE_KM,
-    FREE_FARE_CLASSES,
 )
 
 
-def get_boarding_fare(G, node):
-    """Return (raw_idr, normalized) boarding fare for the route encoded in `node`.
+def apply_terminal_walk_policy(G, start_stop, end_stop, walking_speed_kmh=WALKING_SPEED_KMH):
+    """Correct edge costs around the origin/destination before solving.
 
-    `node` is the (stop_name, route_id) tuple at the start of a path. Travel edges
-    carry Biayaij=0, so the first-corridor fare must be added separately to keep
-    the optimizer's objective and the displayed total honest.
+    Walk/transfer edges are built as mid-journey transfers (fare + boarding wait +
+    transit). But an *access* walk (origin -> your first bus) is not a transfer, and
+    an *egress* walk (last bus -> destination) is not a boarding at all. Because the
+    graph is built without knowing origin/destination, we fix this here at solve time.
+    All solvers share G, so one call corrects every method.
+
+      (a) First-ride fare onto edges: travel edges leaving `start_stop` carry their
+          route's boarding fare (this replaces the old per-start-node boarding seed).
+      (b) Egress walk (head == end_stop): no fare, no transit, walking time only.
+      (c) Access walk (tail == start_stop): not a transfer, so transit is zeroed;
+          fare and time are kept because you do board that first bus.
     """
-    if not (isinstance(node, tuple) and len(node) > 1):
-        return 0.0, 0.0
-    route_id = str(node[1])
-    route_to_fare_id = G.graph.get('route_to_fare_id', {})
-    if route_to_fare_id.get(route_id) in FREE_FARE_CLASSES:
-        return 0.0, 0.0
     route_to_price = G.graph.get('route_to_price', {})
-    price = float(route_to_price.get(route_id, 0.0))
-    return price, price / C_MAX
+
+    for u, v, _key, data in G.edges(keys=True, data=True):
+        etype = data.get('type', 'travel')
+        tail_is_start = isinstance(u, tuple) and u[0] == start_stop
+        head_is_end = isinstance(v, tuple) and v[0] == end_stop
+
+        # (a) first-ride fare on travel edges leaving the origin
+        if etype == 'travel':
+            if tail_is_start:
+                fare = float(route_to_price.get(str(u[1]), 0.0))
+                data['Biayaij'] = fare
+                data['Biayaij_norm'] = fare / C_MAX
+            continue
+
+        if etype not in ('walk', 'transfer'):
+            continue
+
+        # Intra-stop transfers (same stop name) are not access/egress *walks*. They
+        # have distance_km=0, so zeroing their cost would create zero-cost edges and,
+        # at the destination, a zero-cost 2-cycle that the MILP can fold into a free
+        # subtour — which then makes path reconstruction loop forever. Skip them.
+        if isinstance(u, tuple) and isinstance(v, tuple) and u[0] == v[0]:
+            continue
+
+        # (b) egress walk: arrive on foot, board nothing
+        if head_is_end:
+            dist_km = float(data.get('distance_km', 0.0) or 0.0)
+            walk_min = (dist_km / walking_speed_kmh) * 60.0
+            data['Biayaij'] = 0.0
+            data['Biayaij_norm'] = 0.0
+            data['Transitij'] = 0
+            data['Transitij_norm'] = 0.0
+            data['Waktuij'] = walk_min
+            data['Waktuij_norm'] = walk_min / T_MAX
+        # (c) access walk: first boarding via a short walk, not a transfer
+        elif tail_is_start:
+            data['Transitij'] = 0
+            data['Transitij_norm'] = 0.0
 
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -513,13 +551,9 @@ def calculate_final_metrics(G, path, weights):
     if not path or len(path) < 2:
         return {"waktu_tempuh_menit": 0, "jarak_km": 0, "jumlah_transit": 0, "error": "Path tidak valid"}
 
-    # Boarding fare for the first corridor. travel edges carry Biayaij=0,
-    # so without this the displayed cost is 0 for any single-corridor route.
-    # Apply it to z_score too so the displayed objective matches what each
-    # solver now optimizes (boarding fare is added per start node).
-    boarding_raw, boarding_norm = get_boarding_fare(G, path[0])
-    total_cost += boarding_raw
-    z_score += w_c_input * boarding_norm
+    # No post-hoc boarding fare here: apply_terminal_walk_policy() puts the first
+    # ride's fare on the travel edges leaving the origin, so summing edge Biayaij
+    # below already accounts for every boarding (and skips phantom ones).
 
     # Track routes actually ridden (from travel edges) to count real transits.
     # A transit is when the ridden route changes — a walk to the final stop
