@@ -78,10 +78,8 @@ def _construct_path(G, start_node, end_nodes_set, tau, eta, alpha, beta, tau_0,
 
     Dead-end backtracking: on a dead-end pop back and add the node to `forbidden` so it can't be re-chosen later.
 
-    With jalur_awal: potongan jalur (path[:k] sampai node perantara) diwariskan
-    sebagai titik mulai mutasi (Bab 2.6.2). Semut melanjutkan dari node perantara
-    (jalur_awal[-1]), dan backtracking dibatasi agar bagian jalur awal yang
-    dipertahankan tidak bisa diubah.
+    With jalur_awal: potongan jalur (path[:k] sampai node perantara) diwariskan sebagai titik mulai mutasi (Bab 2.6.2). Semut melanjutkan dari node perantara
+    (jalur_awal[-1]), dan backtracking dibatasi agar bagian jalur awal yang dipertahankan tidak bisa diubah.
     """
     if jalur_awal is not None:
         path = list(jalur_awal)
@@ -166,7 +164,7 @@ def _mutate_until_unique(G, path, F_a, tabu_paths, end_nodes_set,
     """
     while ant's path exists in tabu list do { pilih node perantara, rebuild }.
     Keep mutating until path is no longer in tabu list (or attempts exhausted)
-    Pers. 2.19: posisi node perantara k ~ Poisson(L/3), jalur_awal = path[:k],
+    Pers. 2.19: posisi node perantara k  Poisson(L/3), jalur_awal = path[:k],
     konstruksi ulang dari node perantara hingga tujuan.
     """
     attempts = 0

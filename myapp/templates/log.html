@@ -18,8 +18,31 @@
     </div>
 
     <div class="log-shell">
+        <div class="log-filters">
+            <select id="f-asal" class="log-filter-select" aria-label="Filter Halte Asal">
+                <option value="">Semua Asal</option>
+            </select>
+            <select id="f-tujuan" class="log-filter-select" aria-label="Filter Halte Tujuan">
+                <option value="">Semua Tujuan</option>
+            </select>
+            <select id="f-pref" class="log-filter-select" aria-label="Filter Preferensi">
+                <option value="">Semua Preferensi</option>
+            </select>
+            <select id="f-solver" class="log-filter-select" aria-label="Filter Solver">
+                <option value="">Semua Solver</option>
+            </select>
+            <select id="f-mode" class="log-filter-select" aria-label="Filter Mode">
+                <option value="">Semua Mode</option>
+            </select>
+            <button type="button" id="f-reset" class="nav-btn nav-btn-ghost">Reset</button>
+        </div>
+
         <div class="log-meta">
-            Total: <b>{{ total_searches }}</b> pencarian
+            Menampilkan <b id="log-shown">{{ total_searches }}</b> dari <b>{{ total_searches }}</b> pencarian
+            <span class="log-hint">
+                Tip: pilih <b>Asal</b> &amp; <b>Tujuan</b> yang sama (biarkan Solver = Semua)
+                untuk membandingkan algoritma pada rute yang sama.
+            </span>
         </div>
 
         <div class="log-table-wrap">
@@ -49,7 +72,14 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr>
+                        <tr
+                            class="log-row"
+                            data-asal="{{ row.halte_asal }}"
+                            data-tujuan="{{ row.halte_tujuan }}"
+                            data-pref="{{ row.preferensi }}"
+                            data-solver="{{ row.metode_solver }}"
+                            data-mode="{{ row.mode_waktu }}"
+                        >
                             <td class="sticky-col idx">{{ row.search_id }}</td>
                             <td class="ts">{{ row.timestamp }}</td>
                             <td>{{ row.halte_asal }}</td>
@@ -75,9 +105,93 @@
                             <td colspan="19" class="empty-row">Belum ada log.</td>
                         </tr>
                     {% endfor %}
+                    <tr id="log-no-match" hidden>
+                        <td colspan="19" class="empty-row">Tidak ada log yang cocok dengan filter.</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var PREF_LABELS = {
+        seimbang: "Seimbang",
+        min_transit: "Minimal Transit",
+        cepat: "Tercepat",
+        murah: "Termurah",
+    };
+    var SOLVER_LABELS = { MILP: "MILP", ASTAR: "A*", HACO: "HACO" };
+
+    var rows = Array.prototype.slice.call(document.querySelectorAll("tr.log-row"));
+    var fAsal = document.getElementById("f-asal");
+    var fTujuan = document.getElementById("f-tujuan");
+    var fPref = document.getElementById("f-pref");
+    var fSolver = document.getElementById("f-solver");
+    var fMode = document.getElementById("f-mode");
+    var fReset = document.getElementById("f-reset");
+    var shownEl = document.getElementById("log-shown");
+    var noMatch = document.getElementById("log-no-match");
+
+    // Populate a <select> with the distinct values present in the data.
+    function fillOptions(select, key, labels) {
+        var seen = {};
+        rows.forEach(function (r) {
+            var v = (r.dataset[key] || "").trim();
+            if (v) seen[v] = true;
+        });
+        Object.keys(seen).sort().forEach(function (v) {
+            var opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = (labels && labels[v]) || v;
+            select.appendChild(opt);
+        });
+    }
+
+    fillOptions(fAsal, "asal", null);
+    fillOptions(fTujuan, "tujuan", null);
+    fillOptions(fPref, "pref", PREF_LABELS);
+    fillOptions(fSolver, "solver", SOLVER_LABELS);
+    fillOptions(fMode, "mode", null);
+
+    function apply() {
+        var asal = fAsal.value;
+        var tujuan = fTujuan.value;
+        var pref = fPref.value;
+        var solver = fSolver.value;
+        var mode = fMode.value;
+        var shown = 0;
+
+        rows.forEach(function (r) {
+            var d = r.dataset;
+            var ok =
+                (!asal || d.asal === asal) &&
+                (!tujuan || d.tujuan === tujuan) &&
+                (!pref || d.pref === pref) &&
+                (!solver || d.solver === solver) &&
+                (!mode || d.mode === mode);
+            r.hidden = !ok;
+            if (ok) shown++;
+        });
+
+        shownEl.textContent = shown;
+        if (noMatch) noMatch.hidden = rows.length === 0 || shown > 0;
+    }
+
+    [fAsal, fTujuan, fPref, fSolver, fMode].forEach(function (sel) {
+        sel.addEventListener("change", apply);
+    });
+    fReset.addEventListener("click", function () {
+        fAsal.value = "";
+        fTujuan.value = "";
+        fPref.value = "";
+        fSolver.value = "";
+        fMode.value = "";
+        apply();
+    });
+})();
+</script>
 {% endblock %}

@@ -534,6 +534,39 @@ body {
     font-size: 13px;
     color: var(--ink-2);
 }
+.log-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.log-filter-select {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 12px;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+}
+.log-filter-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(11, 102, 194, 0.12);
+}
+.nav-btn-ghost {
+    background: var(--paper);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    font-family: inherit;
+    cursor: pointer;
+}
+.nav-btn-ghost:hover { background: #f3f4f6; }
+.log-hint { color: var(--muted); font-size: 12px; }
+.log-hint b { color: var(--ink-2); }
+
 .log-legend {
     display: inline-flex;
     align-items: center;
@@ -699,3 +732,95 @@ form.is-submitting .date-time-grid {
     0%, 100% { opacity: 0.35; transform: scale(0.85); }
     50%      { opacity: 1;    transform: scale(1.15); }
 }
+
+/* ---------- GTFS Editor ---------- */
+.editor-shell {
+    flex: 1;
+    padding: 18px 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: auto;
+}
+.editor-card { padding: 16px 18px; }
+.login-card { max-width: 380px; margin: 8vh auto 0; }
+.editor-h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.editor-hint { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.editor-hint code, .editor-card code {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.editor-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+}
+@media (max-width: 880px) { .editor-two-col { grid-template-columns: 1fr; } }
+
+.editor-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.editor-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+@media (max-width: 880px) { .editor-actions { grid-template-columns: 1fr; } }
+.action-card { text-decoration: none; color: inherit; transition: border-color .15s, transform .05s; }
+.action-card:hover { border-color: var(--accent); }
+.action-card:active { transform: translateY(1px); }
+.action-title { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
+.action-desc { color: var(--muted); font-size: 12.5px; }
+
+/* Flash messages */
+.msg-list { display: flex; flex-direction: column; gap: 8px; }
+.msg {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+}
+.msg.success { border-color: #bbf7d0; background: #f0fdf4; color: var(--ok); }
+.msg.error   { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.msg.warning { border-color: #fed7aa; background: #fff7ed; color: var(--warn); }
+
+/* Danger variant of the nav button (delete / detach) */
+.nav-btn.danger { background: #dc2626; }
+.nav-btn.danger:hover { background: #b91c1c; }
+
+/* Stop search results dropdown (shared by picker + builder) */
+.stop-picker, .seq-builder { position: relative; }
+.stop-search-wrap { position: relative; }
+.stop-results {
+    display: none;
+    position: absolute;
+    z-index: 30;
+    left: 0; right: 0;
+    margin-top: 4px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(15, 20, 24, 0.12);
+    max-height: 240px;
+    overflow: auto;
+}
+.stop-results.open { display: block; }
+.stop-result {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    border: 0;
+    background: transparent;
+    font-size: 13px;
+    cursor: pointer;
+}
+.stop-result:hover { background: var(--accent-soft); }
+.stop-chosen { margin-top: 6px; }
+
+/* Ordered stop list */
+.seq-list { list-style: decimal; margin: 12px 0 0; padding-left: 24px; display: flex; flex-direction: column; gap: 6px; }
+.seq-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seq-label { font-size: 13px; }
+.seq-ctrl { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.seq-btn { padding: 4px 8px; font-size: 12px; }
+.seq-btn:disabled { opacity: .4; cursor: default; }
+.empty-row { text-align: center; color: var(--muted); padding: 16px; }

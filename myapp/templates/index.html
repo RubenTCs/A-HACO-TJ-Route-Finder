@@ -10,8 +10,11 @@
                 <div class="brand-name">Transjakarta &middot; Route Finder</div>
             </div>
         </div>
-        <div class="topbar-actions"> 
-            <a href="{% url 'log' %}" class="nav-btn">Log &rarr;</a>
+        <div class="topbar-actions">
+            {% comment %} <a href="{% url 'about' %}" class="nav-btn">About</a>
+            <a href="{% url 'user_guide' %}" class="nav-btn">Guide</a>
+            <a href="{% url 'editor_home' %}" class="nav-btn">Admin</a> {% endcomment %}
+            <a href="{% url 'log' %}" class="nav-btn">Log</a>
         </div>
     </div>
 

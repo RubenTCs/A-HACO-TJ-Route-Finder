@@ -11,25 +11,41 @@ from .solver_engine.haco import (
 from .solver_engine.graph import (
     construct_graph_with_costs,
 )
-from .solver_engine.utils import compute_walking_only_route
+from .solver_engine.utils import compute_walking_only_route, apply_terminal_walk_policy
 from .gtfs_helper import gtfsHelper
 from .log.excel_logger import append_search, read_log
 from . import constants as C
+from . import gtfs_editor as editor
+from .gtfs_editor import EditorError
 from datetime import datetime, time
+from functools import wraps
 from time import perf_counter
+from django.conf import settings
+from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
+from django.urls import reverse
 
 HALTE_NAMES_CACHE = []
 
-try:
-    # Reuse the shared GTFS feed/cache from graph_making.
-    stops = gtfsHelper.stops
-    if stops is not None and "stop_name" in stops.columns:
-        HALTE_NAMES_CACHE = sorted(stops["stop_name"].dropna().unique().tolist())
-        print(f"INFO: Cached {len(HALTE_NAMES_CACHE)} stop names")
-except Exception as e:
-    print(f"Failed to load GTFS data from graph helper: {e}")
+
+def refresh_halte_cache():
+    """(Re)build the autocomplete cache of stop names from the current feed.
+
+    Called at import and again after the GTFS editor writes changes so new/edited
+    haltes show up without a server restart.
+    """
+    global HALTE_NAMES_CACHE
+    try:
+        stops = gtfsHelper.stops
+        if stops is not None and "stop_name" in stops.columns:
+            HALTE_NAMES_CACHE = sorted(stops["stop_name"].dropna().unique().tolist())
+            print(f"INFO: Cached {len(HALTE_NAMES_CACHE)} stop names")
+    except Exception as e:
+        print(f"Failed to load GTFS data from graph helper: {e}")
+
+
+refresh_halte_cache()
 
 # API
 def getHalteList(request):
@@ -115,7 +131,7 @@ def index(request):
                         weights_dict = dict(C.WEIGHTS_SEIMBANG)
 
                     print("--- Start Pencarian Rute ---")
-
+                    print(f"Target:{halte_asal} -> {halte_tujuan}")
                     print(f"INFO: Building graph with speed={param_speed}")
                     G, stop_to_routes = construct_graph_with_costs(
                         depart_date, depart_time, speed_kmh=param_speed
@@ -124,6 +140,10 @@ def index(request):
                     if G is None:
                         hasil = {"error": "Gagal membangun graf"}
                     else:
+                        # Correct access/egress walk costs now that origin/destination
+                        # are known, so all solvers stop avoiding sensible walks.
+                        apply_terminal_walk_policy(G, halte_asal, halte_tujuan)
+
                         solver_runners = {
                             "MILP": lambda: find_path_with_gurobi(
                                 G, stop_to_routes,
@@ -249,7 +269,7 @@ def index(request):
                                 "is_walking_only": hasil_route.get("is_walking_only", False),
                                 "fallback_reason": hasil_route.get("fallback_reason", ""),
                             }
-                        print(hasil_route)
+                        # print(hasil_route)
 
                 except Exception as e:
                     hasil = {"error": f"Internal Error: {str(e)}"}
@@ -293,3 +313,231 @@ def log(request):
             "total_searches": len(rows),
         },
     )
+
+
+def about(request):
+    return render(request, "about.html")
+
+
+def user_guide(request):
+    return render(request, "userguide.html")
+
+# =======================================================
+# region GTFS Editor
+# =======================================================
+
+EDITOR_SESSION_KEY = "gtfs_editor_ok"
+
+
+def editor_required(view):
+    """Gate a view behind the shared editor password (session flag)."""
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if not request.session.get(EDITOR_SESSION_KEY):
+            request.session["editor_next"] = request.get_full_path()
+            return redirect("editor_login")
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
+def editor_login(request):
+    if request.session.get(EDITOR_SESSION_KEY):
+        return redirect("editor_home")
+    if request.method == "POST":
+        password = request.POST.get("password", "")
+        if password and password == settings.GTFS_EDITOR_PASSWORD:
+            request.session[EDITOR_SESSION_KEY] = True
+            nxt = request.session.pop("editor_next", None)
+            return redirect(nxt or "editor_home")
+        messages.error(request, "Password salah.")
+    return render(request, "editor/login.html")
+
+
+def editor_logout(request):
+    request.session.pop(EDITOR_SESSION_KEY, None)
+    return redirect("editor_login")
+
+
+@editor_required
+def editor_home(request):
+    try:
+        ctx = {"counts": editor.counts()}
+    except EditorError as e:
+        messages.error(request, str(e))
+        ctx = {"counts": {}}
+    return render(request, "editor/home.html", ctx)
+
+
+@editor_required
+def editor_stops(request):
+    if request.method == "POST":
+        action = request.POST.get("action")
+        try:
+            if action == "add":
+                if editor.name_exists(request.POST.get("stop_name", "")):
+                    messages.warning(
+                        request,
+                        "Catatan: nama halte sama dengan halte lain. Mesin rute "
+                        "menganggap halte bernama sama sebagai satu titik (hub transfer).",
+                    )
+                sid = editor.add_stop(
+                    request.POST.get("stop_name"),
+                    request.POST.get("stop_lat"),
+                    request.POST.get("stop_lon"),
+                )
+                messages.success(request, f"Halte ditambah (stop_id={sid}).")
+            elif action == "edit":
+                editor.update_stop(
+                    request.POST.get("stop_id"),
+                    stop_name=request.POST.get("stop_name"),
+                    stop_lat=request.POST.get("stop_lat"),
+                    stop_lon=request.POST.get("stop_lon"),
+                )
+                messages.success(request, "Halte diperbarui.")
+            elif action == "delete":
+                editor.delete_stop(request.POST.get("stop_id"))
+                messages.success(request, "Halte dihapus.")
+            else:
+                messages.error(request, "Aksi tidak dikenal.")
+        except EditorError as e:
+            messages.error(request, str(e))
+        return redirect(f"{request.path}?q={request.POST.get('q', '')}")
+
+    query = request.GET.get("q", "")
+    edit_id = request.GET.get("edit")
+    try:
+        rows, total = editor.list_stops(query)
+        edit_stop = editor.get_stop(edit_id) if edit_id else None
+    except EditorError as e:
+        messages.error(request, str(e))
+        rows, total, edit_stop = [], 0, None
+    return render(request, "editor/stops.html", {
+        "rows": rows,
+        "total": total,
+        "shown": len(rows),
+        "query": query,
+        "edit_stop": edit_stop,
+    })
+
+
+@editor_required
+def editor_attach(request):
+    if request.method == "POST":
+        action = request.POST.get("action")
+        trip_id = request.POST.get("trip_id")
+        try:
+            if action == "attach":
+                editor.attach_stop_to_trip(
+                    trip_id,
+                    request.POST.get("stop_id"),
+                    request.POST.get("after_sequence"),
+                )
+                messages.success(request, "Halte ditambahkan ke trip.")
+            elif action == "detach":
+                editor.detach_stop_from_trip(trip_id, request.POST.get("stop_id"))
+                messages.success(request, "Halte dilepas dari trip.")
+            else:
+                messages.error(request, "Aksi tidak dikenal.")
+        except EditorError as e:
+            messages.error(request, str(e))
+        route_id = request.POST.get("route_id", "")
+        return redirect(f"{request.path}?route_id={route_id}&trip_id={trip_id or ''}")
+
+    route_id = request.GET.get("route_id", "")
+    trip_id = request.GET.get("trip_id", "")
+    try:
+        ctx = {
+            "routes": editor.get_routes(),
+            "route_id": route_id,
+            "trip_id": trip_id,
+            "trips": editor.get_trips(route_id) if route_id else [],
+            "trip_stops": editor.get_trip_stops(trip_id) if trip_id else [],
+        }
+    except EditorError as e:
+        messages.error(request, str(e))
+        ctx = {"routes": [], "route_id": route_id, "trip_id": trip_id,
+               "trips": [], "trip_stops": []}
+    return render(request, "editor/attach.html", ctx)
+
+
+@editor_required
+def editor_route_new(request):
+    if request.method == "POST":
+        try:
+            rid = editor.create_route(
+                short_name=request.POST.get("route_short_name", ""),
+                long_name=request.POST.get("route_long_name", ""),
+                route_color=request.POST.get("route_color", ""),
+                route_text_color=request.POST.get("route_text_color", ""),
+                fare_id=request.POST.get("fare_id", ""),
+                route_id=request.POST.get("route_id") or None,
+            )
+            messages.success(request, f"Rute dibuat (route_id={rid}). Tambahkan trip untuk rute ini.")
+            return redirect(f"{reverse('editor_trip_new')}?route_id={rid}")
+        except EditorError as e:
+            messages.error(request, str(e))
+    try:
+        fare_ids = editor.get_fare_ids()
+    except EditorError as e:
+        messages.error(request, str(e))
+        fare_ids = []
+    return render(request, "editor/route_new.html", {"fare_ids": fare_ids})
+
+
+@editor_required
+def editor_trip_new(request):
+    if request.method == "POST":
+        try:
+            stop_ids = [s for s in request.POST.get("stop_ids", "").split(",") if s.strip()]
+            tid = editor.create_trip(
+                route_id=request.POST.get("route_id"),
+                service_id=request.POST.get("service_id"),
+                stop_ids=stop_ids,
+                trip_headsign=request.POST.get("trip_headsign", ""),
+                trip_short_name=request.POST.get("trip_short_name", ""),
+                direction_id=request.POST.get("direction_id", "0"),
+                headway_secs=request.POST.get("headway_secs", "600"),
+                start_time=request.POST.get("start_time", "00:00:00"),
+                end_time=request.POST.get("end_time", "23:59:59"),
+            )
+            messages.success(request, f"Trip dibuat (trip_id={tid}).")
+            return redirect("editor_home")
+        except EditorError as e:
+            messages.error(request, str(e))
+    try:
+        ctx = {
+            "routes": editor.get_routes(),
+            "service_ids": editor.get_service_ids(),
+            "route_id": request.GET.get("route_id", ""),
+        }
+    except EditorError as e:
+        messages.error(request, str(e))
+        ctx = {"routes": [], "service_ids": [], "route_id": ""}
+    return render(request, "editor/trip_new.html", ctx)
+
+
+# --- Editor JSON endpoints (for the cascade selects + trip builder) ---
+
+@editor_required
+def api_editor_stops(request):
+    query = request.GET.get("q", "")
+    try:
+        rows, _ = editor.list_stops(query, limit=20)
+    except EditorError:
+        rows = []
+    return JsonResponse(rows, safe=False)
+
+
+@editor_required
+def api_editor_trip_stops(request):
+    trip_id = request.GET.get("trip_id", "")
+    try:
+        rows = editor.get_trip_stops(trip_id) if trip_id else []
+    except EditorError:
+        rows = []
+    return JsonResponse(rows, safe=False)
+
+
+# =======================================================
+# endregion
+# =======================================================

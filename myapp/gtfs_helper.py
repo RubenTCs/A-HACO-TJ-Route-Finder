@@ -83,7 +83,21 @@ class GTFSHelper:
             self._transfers = self.__get_feed().transfers
         return self._transfers
 
+    def reload(self):
+        """Drop the cached feed and every derived table.
+        """
+        self.__feed = None
+        self._routes = None
+        self._stops = None
+        self._stop_times = None
+        self._trips = None
+        self._frequencies = None
+        self._calendar = None
+        self._fare_attributes = None
+        self._fare_rules = None
+        self._shapes = None
+        self._transfers = None
 
-gtfsHelper = GTFSHelper(
-    os.path.join(settings.BASE_DIR, "myapp", "static", "data", "GTFS_Preprocessed.zip")
-)
+GTFS_DIR = os.path.join(settings.BASE_DIR, "myapp", "static", "data", "GTFS_Preprocessed.zip")
+
+gtfsHelper = GTFSHelper(GTFS_DIR)
