@@ -3,7 +3,6 @@ from .utils import (
     calculate_final_metrics,
     build_detailed_journey,
     build_path_coordinates,
-    get_boarding_fare,
 )
 # -- Gurobi Solver --
 def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
@@ -90,12 +89,6 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
             ) * x[(u, v, key)]
             for u, v, key in G.edges(keys=True)
         )
-
-        # Boarding fare for the chosen start node
-        obj_expr += gp.quicksum(
-            w_c * get_boarding_fare(G, s)[1] * x_source[s]
-            for s in start_nodes
-        )
         model.setObjective(obj_expr, gp.GRB.MINIMIZE)
 
         # (2.5) and (2.6): non-negative and normalized weights.
@@ -148,7 +141,7 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
         # Build map: each node has at most one outgoing active edge by flow conservation, so next_of[u] = v is well-defined.
         next_of = {}
         for u, v, key in G.edges(keys=True):
-            if x[(u, v, key)].X > BIN_THRESHOLD: # Pembulatan untuk variabel biner
+            if x[(u, v, key)].X > BIN_THRESHOLD: # Pembulatan untuk variabel biner (harusnya 0 atau 1, tapi bisa jadi 0.9999 atau 1.0001 karena toleransi numerik Gurobi)
                 next_of[u] = v
 
         # Find actual start node from x_source.
@@ -157,11 +150,15 @@ def find_path_with_gurobi(G, stop_to_routes, start_stop, end_stop, weights):
             start_nodes[0],
         )
 
-        # Walk the linked list from start until run out of edges.
+        # Walk the linked list from start until run out of edges. Guard against cycles: a zero-cost subtour in the solution would otherwise loop forever.
         path = [actual_start]
         current = actual_start
+        visited = {actual_start}
         while current in next_of:
             current = next_of[current]
+            if current in visited:
+                break
+            visited.add(current)
             path.append(current)
         
         # Verify path ends at a valid end node

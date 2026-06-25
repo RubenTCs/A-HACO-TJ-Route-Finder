@@ -18,66 +18,318 @@
     </div>
 
     <div class="log-shell">
-        <div class="log-meta">
-            Total: <b>{{ total_searches }}</b> pencarian
+        <div class="log-filters">
+            <select id="f-asal" class="log-filter-select" aria-label="Filter Halte Asal">
+                <option value="">Semua Asal</option>
+            </select>
+            <select id="f-tujuan" class="log-filter-select" aria-label="Filter Halte Tujuan">
+                <option value="">Semua Tujuan</option>
+            </select>
+            <select id="f-pref" class="log-filter-select" aria-label="Filter Preferensi">
+                <option value="">Semua Preferensi</option>
+            </select>
+            <select id="f-solver" class="log-filter-select" aria-label="Filter Solver">
+                <option value="">Semua Solver</option>
+            </select>
+            <select id="f-mode" class="log-filter-select" aria-label="Filter Mode">
+                <option value="">Semua Mode</option>
+            </select>
+            <select id="f-view" class="log-filter-select" aria-label="Mode tampilan">
+                <option value="route">Tampilan: Per rute</option>
+                <option value="flat">Tampilan: Biasa</option>
+                <option value="detail">Tampilan: Detail</option>
+            </select>
+            <button type="button" id="f-reset" class="nav-btn nav-btn-ghost">Reset</button>
         </div>
 
-        <div class="log-table-wrap">
-            <table class="log-table">
+        <div class="log-meta">
+            Menampilkan <b id="log-shown">{{ total_searches }}</b> dari <b>{{ total_searches }}</b> pencarian
+            <span class="log-legend">
+                <span class="legend-swatch"></span> Baris hijau menandai algoritma terbaik untuk
+                skenario yang sama (rute + mode + preferensi). Pilih satu <b>Asal</b> &amp;
+                <b>Tujuan</b> untuk membandingkan antar preferensi &amp; mode, lalu tekan
+                <b>Detail</b> untuk melihat semua kolom.
+            </span>
+        </div>
+
+        <div class="log-table-wrap" id="cmp-section">
+            <table class="log-table cmp-table is-grouped">
                 <thead>
                     <tr>
                         <th class="sticky-col">#</th>
-                        <th>Timestamp</th>
-                        <th>Asal</th>
-                        <th>Tujuan</th>
-                        <th>Tanggal</th>
-                        <th>Jam</th>
                         <th>Preferensi</th>
-                        <th>Solver</th>
                         <th>Mode</th>
-                        <th>Speed (km/h)</th>
-                        <th>W_Waktu</th>
-                        <th>W_Biaya</th>
-                        <th>W_Transit</th>
-                        <th>Waktu (min)</th>
-                        <th>Jarak (km)</th>
+                        <th>Solver</th>
+                        <th>Waktu (mnt)</th>
                         <th>Biaya (Rp)</th>
                         <th>Transit</th>
                         <th>Obj. Value</th>
                         <th>Runtime (s)</th>
                     </tr>
                 </thead>
+                {% for route in route_groups %}
+                    <tbody
+                        class="route-group{% if route.any_compared %} is-compared{% endif %}"
+                        data-asal="{{ route.asal }}"
+                        data-tujuan="{{ route.tujuan }}"
+                    >
+                        <tr class="route-head-row">
+                            <td colspan="9">
+                                <span class="rh-route">{{ route.asal }} &rarr; {{ route.tujuan }}</span>
+                                <span class="rh-muted">{{ route.scenario_count }} kombinasi mode &times; preferensi</span>
+                            </td>
+                        </tr>
+                        {% for scn in route.scenarios %}
+                            {% for row in scn.rows %}
+                                <tr
+                                    class="log-row{% if row.is_best %} is-best{% endif %}"
+                                    data-id="{{ row.search_id }}"
+                                    data-asal="{{ row.halte_asal }}"
+                                    data-tujuan="{{ row.halte_tujuan }}"
+                                    data-pref="{{ row.preferensi }}"
+                                    data-mode="{{ row.mode_waktu }}"
+                                    data-solver="{{ row.metode_solver }}"
+                                >
+                                    <td class="sticky-col idx">{{ row.search_id }}</td>
+                                    <td>{{ scn.pref_label }}</td>
+                                    <td>{{ row.mode_waktu }}</td>
+                                    <td class="solver-cell">{{ row.metode_solver }}</td>
+                                    <td class="num{% if scn.metric == 'waktu' %}{% if row.is_best %} hl-strong{% else %} hl-soft{% endif %}{% endif %}">{{ row.waktu }}</td>
+                                    <td class="num{% if scn.metric == 'biaya' %}{% if row.is_best %} hl-strong{% else %} hl-soft{% endif %}{% endif %}">{{ row.biaya }}</td>
+                                    <td class="num{% if scn.metric == 'transit' %}{% if row.is_best %} hl-strong{% else %} hl-soft{% endif %}{% endif %}">{{ row.transit }}</td>
+                                    <td class="num{% if scn.metric == 'obj_value' %}{% if row.is_best %} hl-strong{% else %} hl-soft{% endif %}{% endif %}">{{ row.obj_value }}</td>
+                                    <td class="num">{{ row.runtime }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                {% empty %}
+                    <tbody>
+                        <tr><td colspan="9" class="empty-row">Belum ada log.</td></tr>
+                    </tbody>
+                {% endfor %}
+                <tbody id="cmp-flat-body" hidden></tbody>
                 <tbody>
-                    {% for row in rows %}
-                        <tr>
-                            <td class="sticky-col idx">{{ row.search_id }}</td>
-                            <td class="ts">{{ row.timestamp }}</td>
-                            <td>{{ row.halte_asal }}</td>
-                            <td>{{ row.halte_tujuan }}</td>
-                            <td>{{ row.tanggal_berangkat }}</td>
-                            <td>{{ row.jam_berangkat }}</td>
-                            <td>{{ row.preferensi }}</td>
-                            <td>{{ row.metode_solver }}</td>
-                            <td>{{ row.mode_waktu }}</td>
-                            <td class="num">{{ row.param_speed }}</td>
-                            <td class="num">{{ row.weights_waktu }}</td>
-                            <td class="num">{{ row.weights_biaya }}</td>
-                            <td class="num">{{ row.weights_transit }}</td>
-                            <td class="num">{{ row.waktu }}</td>
-                            <td class="num">{{ row.jarak }}</td>
-                            <td class="num">{{ row.biaya }}</td>
-                            <td class="num">{{ row.transit }}</td>
-                            <td class="num">{{ row.obj_value }}</td>
-                            <td class="num">{{ row.runtime }}</td>
-                        </tr>
-                    {% empty %}
-                        <tr>
-                            <td colspan="19" class="empty-row">Belum ada log.</td>
-                        </tr>
-                    {% endfor %}
+                    <tr id="cmp-no-match" hidden>
+                        <td colspan="9" class="empty-row">Tidak ada log yang cocok dengan filter.</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
+
+        <div id="raw-section" class="raw-section" hidden>
+            <div class="raw-title">Data mentah / detail (semua kolom)</div>
+            <div class="log-table-wrap raw-wrap">
+                <table class="log-table">
+                    <thead>
+                        <tr>
+                            <th class="sticky-col">#</th>
+                            <th>Timestamp</th>
+                            <th>Asal</th>
+                            <th>Tujuan</th>
+                            <th>Tanggal</th>
+                            <th>Jam</th>
+                            <th>Preferensi</th>
+                            <th>Solver</th>
+                            <th>Mode</th>
+                            <th>Speed (km/h)</th>
+                            <th>W_Waktu</th>
+                            <th>W_Biaya</th>
+                            <th>W_Transit</th>
+                            <th>Waktu (min)</th>
+                            <th>Jarak (km)</th>
+                            <th>Biaya (Rp)</th>
+                            <th>Transit</th>
+                            <th>Obj. Value</th>
+                            <th>Runtime (s)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                            <tr
+                                class="raw-row{% if row.is_best %} is-best{% endif %}"
+                                data-asal="{{ row.halte_asal }}"
+                                data-tujuan="{{ row.halte_tujuan }}"
+                                data-pref="{{ row.preferensi }}"
+                                data-mode="{{ row.mode_waktu }}"
+                                data-solver="{{ row.metode_solver }}"
+                            >
+                                <td class="sticky-col idx">{{ row.search_id }}</td>
+                                <td class="ts">{{ row.timestamp }}</td>
+                                <td>{{ row.halte_asal }}</td>
+                                <td>{{ row.halte_tujuan }}</td>
+                                <td>{{ row.tanggal_berangkat }}</td>
+                                <td>{{ row.jam_berangkat }}</td>
+                                <td>{{ row.preferensi }}</td>
+                                <td>{{ row.metode_solver }}</td>
+                                <td>{{ row.mode_waktu }}</td>
+                                <td class="num">{{ row.param_speed }}</td>
+                                <td class="num">{{ row.weights_waktu }}</td>
+                                <td class="num">{{ row.weights_biaya }}</td>
+                                <td class="num">{{ row.weights_transit }}</td>
+                                <td class="num">{{ row.waktu }}</td>
+                                <td class="num">{{ row.jarak }}</td>
+                                <td class="num">{{ row.biaya }}</td>
+                                <td class="num">{{ row.transit }}</td>
+                                <td class="num">{{ row.obj_value }}</td>
+                                <td class="num">{{ row.runtime }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="19" class="empty-row">Belum ada log.</td></tr>
+                        {% endfor %}
+                        <tr id="raw-no-match" hidden>
+                            <td colspan="19" class="empty-row">Tidak ada log yang cocok dengan filter.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var PREF_LABELS = {
+        seimbang: "Seimbang",
+        min_transit: "Minimal Transit",
+        cepat: "Tercepat",
+        murah: "Termurah",
+    };
+    var SOLVER_LABELS = { MILP: "MILP", ASTAR: "A*", HACO: "HACO" };
+
+    var routeGroups = Array.prototype.slice.call(document.querySelectorAll("tbody.route-group"));
+    var cmpRows = Array.prototype.slice.call(document.querySelectorAll("tr.log-row"));
+    var rawRows = Array.prototype.slice.call(document.querySelectorAll("tr.raw-row"));
+    var cmpTable = document.querySelector(".cmp-table");
+    var cmpFlatBody = document.getElementById("cmp-flat-body");
+    var fAsal = document.getElementById("f-asal");
+    var fTujuan = document.getElementById("f-tujuan");
+    var fPref = document.getElementById("f-pref");
+    var fSolver = document.getElementById("f-solver");
+    var fMode = document.getElementById("f-mode");
+    var fReset = document.getElementById("f-reset");
+    var fView = document.getElementById("f-view");
+    var cmpSection = document.getElementById("cmp-section");
+    var rawSection = document.getElementById("raw-section");
+    var shownEl = document.getElementById("log-shown");
+    var cmpNoMatch = document.getElementById("cmp-no-match");
+    var rawNoMatch = document.getElementById("raw-no-match");
+
+    var grouped = true; // default: grouped by route (the comparison view).
+
+    // Remember each comparison row's home route group so we can restore layout.
+    cmpRows.forEach(function (r) { r._group = r.parentNode; });
+
+    // Populate a <select> with the distinct values present on the rows.
+    function fillOptions(select, key, labels) {
+        var seen = {};
+        cmpRows.forEach(function (r) {
+            var v = (r.dataset[key] || "").trim();
+            if (v) seen[v] = true;
+        });
+        Object.keys(seen).sort().forEach(function (v) {
+            var opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = (labels && labels[v]) || v;
+            select.appendChild(opt);
+        });
+    }
+
+    fillOptions(fAsal, "asal", null);
+    fillOptions(fTujuan, "tujuan", null);
+    fillOptions(fPref, "pref", PREF_LABELS);
+    fillOptions(fSolver, "solver", SOLVER_LABELS);
+    fillOptions(fMode, "mode", null);
+
+    // The comparison table can show rows grouped by route or as one flat list.
+    function layoutFlat() {
+        var sorted = cmpRows.slice().sort(function (a, b) {
+            return (+b.dataset.id || 0) - (+a.dataset.id || 0);
+        });
+        sorted.forEach(function (r) { cmpFlatBody.appendChild(r); });
+        routeGroups.forEach(function (g) { g.hidden = true; });
+        cmpFlatBody.hidden = false;
+    }
+    function layoutGrouped() {
+        cmpRows.forEach(function (r) { r._group.appendChild(r); });
+        cmpFlatBody.hidden = true;
+        routeGroups.forEach(function (g) { g.hidden = false; });
+    }
+    // Single control for all three views: per-route (grouped), flat, and detail.
+    function setView(mode) {
+        var detail = (mode === "detail");
+        grouped = (mode === "route");
+        cmpSection.hidden = detail;     // detail replaces the ringkas table
+        rawSection.hidden = !detail;
+        if (!detail) {
+            if (grouped) layoutGrouped(); else layoutFlat();
+            cmpTable.classList.toggle("is-grouped", grouped);
+        }
+        apply();
+    }
+
+    function matches(d, asal, tujuan, pref, solver, mode) {
+        return (!asal || d.asal === asal) &&
+               (!tujuan || d.tujuan === tujuan) &&
+               (!pref || d.pref === pref) &&
+               (!solver || d.solver === solver) &&
+               (!mode || d.mode === mode);
+    }
+
+    function apply() {
+        var asal = fAsal.value;
+        var tujuan = fTujuan.value;
+        var pref = fPref.value;
+        var solver = fSolver.value;
+        var mode = fMode.value;
+        var cmpShown = 0;
+        var rawShown = 0;
+
+        cmpRows.forEach(function (r) {
+            var ok = matches(r.dataset, asal, tujuan, pref, solver, mode);
+            r.hidden = !ok;
+            if (ok) cmpShown++;
+        });
+        rawRows.forEach(function (r) {
+            var ok = matches(r.dataset, asal, tujuan, pref, solver, mode);
+            r.hidden = !ok;
+            if (ok) rawShown++;
+        });
+
+        // In grouped mode, hide a route block when none of its rows show.
+        if (grouped) {
+            routeGroups.forEach(function (g) {
+                var anyVisible = false;
+                g.querySelectorAll("tr.log-row").forEach(function (r) {
+                    if (!r.hidden) anyVisible = true;
+                });
+                g.hidden = !anyVisible;
+            });
+        }
+
+        shownEl.textContent = cmpShown;
+        if (cmpNoMatch) cmpNoMatch.hidden = cmpRows.length === 0 || cmpShown > 0;
+        if (rawNoMatch) rawNoMatch.hidden = rawRows.length === 0 || rawShown > 0;
+    }
+
+    [fAsal, fTujuan, fPref, fSolver, fMode].forEach(function (sel) {
+        sel.addEventListener("change", apply);
+    });
+    fView.addEventListener("change", function () {
+        setView(fView.value);
+    });
+    fReset.addEventListener("click", function () {
+        fAsal.value = "";
+        fTujuan.value = "";
+        fPref.value = "";
+        fSolver.value = "";
+        fMode.value = "";
+        apply();
+    });
+
+    setView(fView.value); // establish default view (Per rute)
+})();
+</script>
 {% endblock %}

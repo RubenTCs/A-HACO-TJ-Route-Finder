@@ -1,0 +1,15 @@
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.vscode/
+.claude/
+.env
+*.pdf
+staticfiles/
+db.sqlite3
+MANUAL_BOOK.pdf

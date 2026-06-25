@@ -8,8 +8,8 @@ from scipy.spatial import cKDTree
 from ..gtfs_helper import gtfsHelper
 from ..constants import (
     T_MAX, C_MAX, P_MAX,
-    DEFAULT_SPEED_KMH, MAX_WAIT_MIN,
-    WALKING_SPEED_KMH, WALKING_RADIUS_M, KM_PER_DEGREE,
+    DEFAULT_SPEED_KMH, MAX_WAIT_MIN, BUS_STOP_SECS,
+    WALKING_SPEED_KMH, WALKING_RADIUS_M,
     FLAT_FARE_CLASSES, FREE_FARE_CLASSES,
     ECONOMY_FARE_CLASSES, ECONOMY_FARE_PRICE,
     ECONOMY_DISCOUNT_START, ECONOMY_DISCOUNT_END,
@@ -51,6 +51,7 @@ def construct_graph_with_costs(depart_date=None,
                                depart_time=None,
                                speed_kmh=DEFAULT_SPEED_KMH,
                                max_wait_min=MAX_WAIT_MIN,
+                               bus_stop_secs=BUS_STOP_SECS,
                                walking_speed_kmh=WALKING_SPEED_KMH,
                                walking_radius_m=WALKING_RADIUS_M):
     """
@@ -148,16 +149,33 @@ def construct_graph_with_costs(depart_date=None,
         G.graph['fare_id_to_price'] = fare_id_to_price # {"FP": 3500.0, "FP2": 3500.0, "GR": 0.0, "PP": 20000.0}
 
         def transfer_fare(prev_fare_id, next_fare_id):
-            """Cost (IDR) of boarding `next_fare_id` after a leg priced as `prev_fare_id`."""
+            """Cost (IDR) of boarding `next_fare_id` after a leg priced as `prev_fare_id`.
+
+            Used for in-system transfers (same halte or seamless transfers.txt walkway)
+            where the passenger stays in the paid zone — no tap-out — so FP/FP2 keep
+            their free transfer credit.
+            """
             if not next_fare_id:
                 return 0.0
-            if next_fare_id in FREE_FARE_CLASSES: 
+            if next_fare_id in FREE_FARE_CLASSES:
                 # GR route
                 return 0.0
             if next_fare_id in FLAT_FARE_CLASSES and prev_fare_id in FLAT_FARE_CLASSES:
                 # Free transfer credit between FP/FP2 routes.
                 return 0.0
             # Other route selain (FP, FP2, GR)
+            return float(fare_id_to_price.get(next_fare_id, 0.0))
+
+        def walk_boarding_fare(next_fare_id):
+            """Cost (IDR) to board `next_fare_id` after a street-level walk.
+
+            A walk between non-connected halte means tap-out then tap-in, which ends
+            the integrated journey — so the full destination fare is charged with NO
+            FP/FP2 transfer credit (e.g. FP -> walk -> FP = Rp 3,500 again). GR stays
+            free because boarding a Mikrotrans costs nothing.
+            """
+            if not next_fare_id:
+                return 0.0
             return float(fare_id_to_price.get(next_fare_id, 0.0))
         
         # ===============================================
@@ -308,7 +326,7 @@ def construct_graph_with_costs(depart_date=None,
                     )
 
                 # Travel time derived from distance and speed (Tabel 2.1).
-                travel_time_min = (dist_km / speed_kmh) * 60
+                travel_time_min = (dist_km / speed_kmh) * 60 + (bus_stop_secs / 60.0)
 
                 G.add_edge(node1, node2, key=route_id,
                           type="travel",
@@ -482,14 +500,14 @@ def construct_graph_with_costs(depart_date=None,
                 existing_pairs.add(frozenset((u[0], v[0])))
 
         # Build a KD-Tree from all stop coordinates for fast spatial lookups.
-        # A KD-Tree partitions points in space so that "find all pairs within distance R" runs in O(n log n) instead of O(n²) brute-force checks.
+        # A KD-Tree partitions points in space so that "find all pairs within distance R" runs in O(n log n)
         stop_names = list(stop_coords.keys())
         coords_array = np.array([(lat, lon) for lat, lon in stop_coords.values()])
 
-        # Convert walking radius from km to degrees (≈ KM_PER_DEGREE km per degree of latitude).
-        radius_deg = walking_radius_km / KM_PER_DEGREE
+        # Convert walking radius from km to degrees (equals around 111 km per degree of latitude. Approx km per degree of latitude (40,075 km circumference / 360°)).
+        radius_deg = walking_radius_km / 111.0
 
-        # query_pairs returns all (i, j) index pairs whose distance ≤ radius_deg.
+        # query_pairs returns all (i, j) index pairs whose distance <= radius_deg.
         # Each pair is returned once (i < j), so no duplicates.
         tree = cKDTree(coords_array)
         candidate_pairs = tree.query_pairs(r=radius_deg)
@@ -569,10 +587,8 @@ def construct_graph_with_costs(depart_date=None,
         print(f"Graph built successfully! ({_elapsed:.2f}s)")
         print(f"Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}")
         print(f"Stops with multiple routes: {sum(1 for r in stop_to_routes.values() if len(r) > 1)}")
-        
         return G, stop_to_routes
         
     except Exception as e:
         print(f"Internal Error: {str(e)}")
         return None, None
-

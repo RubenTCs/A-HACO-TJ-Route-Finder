@@ -49,14 +49,19 @@ function renderTimeline() {
         tl.appendChild(banner);
     }
 
-    // Start step — for walking-only, anchor on the first walk step instead of travel.
+    // Start step — if the journey begins with an access walk, anchor on the walk's origin.
+    var firstStep = steps[0];
+    var accessWalk = (firstStep && firstStep.type === "walk") ? firstStep : null;
     if (firstTravel) {
+        var startHalte = accessWalk ? (accessWalk.from_halte || data.halte_asal || "") : (firstTravel.from || data.halte_asal || "");
+        var startSub = accessWalk
+            ? 'Berjalan kaki ke ' + (accessWalk.to_halte || "") + ', lalu naik ' + corridorChip(firstTravel.koridor) + ' menuju ' + (firstTravel.to || "")
+            : 'Naik ' + corridorChip(firstTravel.koridor) + ' menuju ' + (firstTravel.to || "");
         var startNode = el("div", "step start");
         startNode.innerHTML =
             '<div class="ttl"><span class="pin">Mulai &middot; ' + (data.jam_berangkat || "") + '</span> ' +
-            (firstTravel.from || data.halte_asal || "") + '</div>' +
-            '<div class="sub">Naik ' + corridorChip(firstTravel.koridor) + ' menuju ' +
-            (firstTravel.to || "") + '</div>';
+            startHalte + '</div>' +
+            '<div class="sub">' + startSub + '</div>';
         tl.appendChild(startNode);
     } else if (isWalkingOnly && steps[0]) {
         var startNode = el("div", "step start");

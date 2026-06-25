@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Tentang &middot; Transjakarta Route Finder{% endblock %}
+
+{% block content %}
+{% include 'sections/navbar.html' %}
+
+<main class="about-page">
+  <div class="eyebrow">Tentang sistem</div>
+  <h1>Menemukan rute Transjakarta yang paling efisien.</h1>
+  <p class="lede">
+    Route Finder adalah alat optimasi rute untuk jaringan Transjakarta. Sistem ini
+    mengubah data jadwal <b>GTFS</b> menjadi sebuah graf berbobot, lalu mencari jalur
+    terbaik antar halte berdasarkan preferensi Anda</b>.
+  </p>
+
+  <section>
+    <h2>Tiga metode penyelesaian</h2>
+    <p class="section-intro">
+      Setiap pencarian dapat diselesaikan dengan salah satu dari tiga solver. Masing-masing
+      punya karakteristik kecepatan dan optimalitas yang berbeda.
+    </p>
+    <div class="methods">
+      <div class="method">
+        <span class="tag">MILP</span>
+        <h3>Mixed-Integer Linear Programming</h3>
+        <p>Memodelkan rute sebagai persoalan optimasi linear dan menyelesaikannya dengan
+        solver Gurobi. Memberikan solusi optimal secara matematis untuk bobot yang diberikan.</p>
+      </div>
+      <div class="method">
+        <span class="tag">A*</span>
+        <h3>A-Star Search</h3>
+        <p>Algoritma pencarian jalur terpandu (heuristik) yang cepat menemukan rute terpendek
+        pada graf, cocok untuk pencarian dengan satu kriteria dominan.</p>
+      </div>
+      <div class="method">
+        <span class="tag">HACO</span>
+        <h3>Hybrid Ant Colony Optimization</h3>
+        <p>Pendekatan metaheuristik yang meniru perilaku koloni semut 
+          pada jaringan yang besar dan kompleks.</p>
+      </div>
+      <div class="method">
+        <span class="tag">Bobot dinamis</span>
+        <h3>Pembobotan preferensi</h3>
+        <p>Waktu, biaya, dan jumlah transit diberi bobot sesuai preferensi yang dipilih,
+          sehingga solver mengejar definisi "terbaik" yang sesuai kebutuhan.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Preferensi &amp; kondisi waktu</h2>
+    <p class="section-intro">
+      Rute disesuaikan dengan apa yang diprioritaskan, dan kecepatan tempuh diperkirakan
+      otomatis berdasarkan jam keberangkatan.
+    </p>
+    <div class="feature-grid">
+      <div class="panel">
+        <h3>Preferensi rute</h3>
+        <div class="listrow">
+          <div class="title">Seimbang</div>
+          <div class="desc">Kompromi antara waktu, biaya, dan transit.</div>
+        </div>
+        <div class="listrow">
+          <div class="title">Paling murah</div>
+          <div class="desc">Menekan total biaya perjalanan serendah mungkin.</div>
+        </div>
+        <div class="listrow">
+          <div class="title">Paling cepat</div>
+          <div class="desc">Memprioritaskan waktu tempuh paling singkat.</div>
+        </div>
+        <div class="listrow">
+          <div class="title">Paling sedikit transit</div>
+          <div class="desc">Mengurangi jumlah perpindahan koridor.</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Mode waktu (kecepatan asumsi)</h3>
+        <div class="listrow">
+          <div class="title">Jam sibuk <span class="speedtag">17.5 km/j</span></div>
+          <div class="desc">07.00&ndash;09.00 &amp; 17.00&ndash;19.00 &mdash; lalu lintas padat.</div>
+        </div>
+        <div class="listrow">
+          <div class="title">Jam normal <span class="speedtag">25 km/j</span></div>
+          <div class="desc">09.01&ndash;16.59 &mdash; kondisi lalu lintas sedang.</div>
+        </div>
+        <div class="listrow">
+          <div class="title">Jam malam <span class="speedtag">40 km/j</span></div>
+          <div class="desc">19.01&ndash;06.58 &mdash; jalan relatif lengang.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cara kerja</h2>
+    <p class="section-intro">
+      Dari input halte hingga itinerary lengkap, setiap pencarian melewati empat tahap.
+    </p>
+    <div class="pipeline">
+      <div class="pstep">
+        <div class="num">01</div>
+        <div class="pt">Baca data GTFS</div>
+        <div class="pd">Jadwal, halte, dan koridor dimuat dari feed GTFS Transjakarta.</div>
+      </div>
+      <div class="pstep">
+        <div class="num">02</div>
+        <div class="pt">Bangun graf</div>
+        <div class="pd">Halte menjadi simpul; biaya waktu &amp; ongkos menjadi bobot sisi.</div>
+      </div>
+      <div class="pstep">
+        <div class="num">03</div>
+        <div class="pt">Jalankan solver</div>
+        <div class="pd">MILP, A*, atau HACO mencari jalur sesuai bobot preferensi.</div>
+      </div>
+      <div class="pstep">
+        <div class="num">04</div>
+        <div class="pt">Susun itinerary</div>
+        <div class="pd">Hasil ditampilkan sebagai rute, peta, waktu, biaya, dan transit.</div>
+      </div>
+    </div>
+    <div class="corridors">
+      <span class="corridor-chip" style="background:#D62126;"><span class="d"></span>1 &middot; Blok M &ndash; Kota</span>
+      <span class="corridor-chip" style="background:#2F489C;"><span class="d"></span>2 &middot; Pulo Gadung &ndash; Monumen Nasional</span>
+      <span class="corridor-chip" style="background:#1BAC47;"><span class="d"></span>6 &middot; Ragunan &ndash; Galunggung</span>
+    </div>
+  </section>
+
+  <div class="callout">
+    <div class="ctext">
+      <h3>Siap mencoba?</h3>
+      <p>Masukkan halte awal dan tujuan, pilih preferensi, lalu biarkan sistem menemukan rute terbaik.</p>
+    </div>
+    <a href="{% url 'index' %}">Cari rute &rarr;</a>
+  </div>
+</main>
+{% endblock %}

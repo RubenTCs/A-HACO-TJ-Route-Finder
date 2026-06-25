@@ -36,20 +36,7 @@
 {{ hasil|json_script:"hasilData" }}
 {% endif %}
 
-<script>
-    // Ubah hasil JSON menjadi objek JavaScript
-    var hasil = {};
-    try {
-        var hasilEl = document.getElementById("hasilData");
-        if (hasilEl) hasil = JSON.parse(hasilEl.textContent);
-    } catch (e) {
-        console.error("Gagal parsing hasil JSON:", e);
-    }
-    window.hasil = hasil;
-    var pathCoords = hasil.path_coords || [];
-    console.log("hasil dari Django:", hasil);
-</script>
-
+<script src="{% static 'js/index.js' %}"></script>
 <script src="{% static 'js/form.js' %}"></script>
 {% if hasil and hasil.detailed_journey %}
 <script src="{% static 'js/map.js' %}"></script>

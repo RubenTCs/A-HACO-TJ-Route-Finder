@@ -5,31 +5,69 @@ Utils/Helper
 from math import radians, sin, cos, sqrt, asin
 from ..gtfs_helper import gtfsHelper
 from ..constants import (
+    T_MAX,
     C_MAX,
     DEFAULT_ROUTE_COLOR,
     WALKING_COLOR,
     WALKING_SPEED_KMH,
     WALKING_FALLBACK_MAX_DISTANCE_KM,
-    FREE_FARE_CLASSES,
 )
 
 
-def get_boarding_fare(G, node):
-    """Return (raw_idr, normalized) boarding fare for the route encoded in `node`.
+def apply_terminal_walk_policy(G, start_stop, end_stop, walking_speed_kmh=WALKING_SPEED_KMH):
+    """Correct edge costs around the origin/destination before solving.
 
-    `node` is the (stop_name, route_id) tuple at the start of a path. Travel edges
-    carry Biayaij=0, so the first-corridor fare must be added separately to keep
-    the optimizer's objective and the displayed total honest.
+    Walk/transfer edges are built as mid-journey transfers (fare + boarding wait +
+    transit). But an *access* walk (origin -> your first bus) is not a transfer, and
+    an *egress* walk (last bus -> destination) is not a boarding at all. Because the
+    graph is built without knowing origin/destination, we fix this here at solve time.
+    All solvers share G, so one call corrects every method.
+
+      (a) First-ride fare onto edges: travel edges leaving `start_stop` carry their
+          route's boarding fare (this replaces the old per-start-node boarding seed).
+      (b) Egress walk (head == end_stop): no fare, no transit, walking time only.
+      (c) Access walk (tail == start_stop): not a transfer, so transit is zeroed;
+          fare and time are kept because you do board that first bus.
     """
-    if not (isinstance(node, tuple) and len(node) > 1):
-        return 0.0, 0.0
-    route_id = str(node[1])
-    route_to_fare_id = G.graph.get('route_to_fare_id', {})
-    if route_to_fare_id.get(route_id) in FREE_FARE_CLASSES:
-        return 0.0, 0.0
     route_to_price = G.graph.get('route_to_price', {})
-    price = float(route_to_price.get(route_id, 0.0))
-    return price, price / C_MAX
+
+    for u, v, _key, data in G.edges(keys=True, data=True):
+        etype = data.get('type', 'travel')
+        tail_is_start = isinstance(u, tuple) and u[0] == start_stop
+        head_is_end = isinstance(v, tuple) and v[0] == end_stop
+
+        # (a) first-ride fare on travel edges leaving the origin
+        if etype == 'travel':
+            if tail_is_start:
+                fare = float(route_to_price.get(str(u[1]), 0.0))
+                data['Biayaij'] = fare
+                data['Biayaij_norm'] = fare / C_MAX
+            continue
+
+        if etype not in ('walk', 'transfer'):
+            continue
+
+        # Intra-stop transfers (same stop name) are not access/egress *walks*. They
+        # have distance_km=0, so zeroing their cost would create zero-cost edges and,
+        # at the destination, a zero-cost 2-cycle that the MILP can fold into a free
+        # subtour — which then makes path reconstruction loop forever. Skip them.
+        if isinstance(u, tuple) and isinstance(v, tuple) and u[0] == v[0]:
+            continue
+
+        # (b) egress walk: arrive on foot, board nothing
+        if head_is_end:
+            dist_km = float(data.get('distance_km', 0.0) or 0.0)
+            walk_min = (dist_km / walking_speed_kmh) * 60.0
+            data['Biayaij'] = 0.0
+            data['Biayaij_norm'] = 0.0
+            data['Transitij'] = 0
+            data['Transitij_norm'] = 0.0
+            data['Waktuij'] = walk_min
+            data['Waktuij_norm'] = walk_min / T_MAX
+        # (c) access walk: first boarding via a short walk, not a transfer
+        elif tail_is_start:
+            data['Transitij'] = 0
+            data['Transitij_norm'] = 0.0
 
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -47,6 +85,11 @@ def build_route_shape_map():
     Multiple entries per route cover different directions (each has a distinct shape_id).
     One representative trip per (route_id, shape_id) pair is enough because all trips
     sharing the same shape have identical shape_dist_traveled values at each stop.
+
+    stop_dist maps stop_name -> sorted list of every shape_dist_traveled where that
+    halte appears. Loop routes (e.g. corridor 2: Pulo Gadung -> Monas -> Pulo Gadung)
+    revisit the same halte outbound and inbound, so a single distance is not enough to
+    reconstruct which leg of the loop a segment actually rode.
     """
     trips_df = gtfsHelper.trips
     stop_times_df = gtfsHelper.stop_times
@@ -91,8 +134,9 @@ def build_route_shape_map():
             stop_dist = {}
             for _, sr in trip_stops.iterrows():
                 name = str(sr['stop_name'])
-                if name not in stop_dist:
-                    stop_dist[name] = float(sr['shape_dist_traveled'])
+                stop_dist.setdefault(name, []).append(float(sr['shape_dist_traveled']))
+            for occurrences in stop_dist.values():
+                occurrences.sort()
 
             entries.append({'shape_id': shape_id, 'stop_dist': stop_dist})
 
@@ -120,14 +164,24 @@ def _get_shape_segment_coords(shapes_df, shape_id, dist_from, dist_to):
     ]
 
 
-def _find_shape_for_segment(route_id, from_stop, to_stop, route_shape_map):
-    """Return (shape_id, dist_from, dist_to) for a travel segment, or (None, None, None)."""
+def _find_shape_for_segment(route_id, from_stop, to_stop, route_shape_map, min_from_dist=0.0):
+    """Return (shape_id, dist_from, dist_to) for a travel segment, or (None, None, None).
+
+    Halte can appear more than once on a shape (loop routes pass the same stop on the
+    way out and the way back). `min_from_dist` is how far along the shape the previous
+    segment ended; we pick the from-stop occurrence at/after it, then the first to-stop
+    occurrence beyond that — the shortest forward hop. Without this, a segment such as
+    Kwitang->Senen could clip to the *outbound* Senen and span half the loop, drawing a
+    spurious detour back through the city centre.
+    """
     for entry in route_shape_map.get(str(route_id), []):
-        stop_dist = entry['stop_dist']
-        dist_from = stop_dist.get(from_stop)
-        dist_to = stop_dist.get(to_stop)
-        if dist_from is not None and dist_to is not None:
-            return entry['shape_id'], dist_from, dist_to
+        from_list = entry['stop_dist'].get(from_stop)
+        to_list = entry['stop_dist'].get(to_stop)
+        if not from_list or not to_list:
+            continue
+        dist_from = next((d for d in from_list if d >= min_from_dist), from_list[-1])
+        dist_to = next((d for d in to_list if d > dist_from), to_list[-1])
+        return entry['shape_id'], dist_from, dist_to
     return None, None, None
 
 
@@ -396,13 +450,15 @@ def build_path_coordinates(detailed_journey, path):
                     # Step 3a: Use GTFS shape geometry for accurate route geometry.
                     all_stops = [from_stop] + via_stops + [to_stop]
                     segment_ok = True
+                    cursor_dist = 0.0  # how far along the shape we've travelled so far
 
                     for seg_from, seg_to in zip(all_stops, all_stops[1:]):
                         if not seg_from or not seg_to:
                             segment_ok = False
                             break
                         shape_id, dist_f, dist_t = _find_shape_for_segment(
-                            route_id, seg_from, seg_to, route_shape_map
+                            route_id, seg_from, seg_to, route_shape_map,
+                            min_from_dist=cursor_dist
                         )
                         if shape_id is None:
                             segment_ok = False
@@ -410,6 +466,7 @@ def build_path_coordinates(detailed_journey, path):
                         step_coords.extend(
                             _get_shape_segment_coords(shapes_df, shape_id, dist_f, dist_t)
                         )
+                        cursor_dist = dist_t
 
                     if segment_ok and step_coords:
                         shape_used = True
@@ -504,7 +561,7 @@ def calculate_final_metrics(G, path, weights):
     total_dist = 0.0
     total_time = 0.0  # in minutes (raw, for display)
     total_cost = 0.0
-    z_score = 0.0
+    Obj_val = 0.0
 
     w_t_input = float(weights.get('waktu', 0))
     w_c_input = float(weights.get('biaya', 0))
@@ -513,17 +570,7 @@ def calculate_final_metrics(G, path, weights):
     if not path or len(path) < 2:
         return {"waktu_tempuh_menit": 0, "jarak_km": 0, "jumlah_transit": 0, "error": "Path tidak valid"}
 
-    # Boarding fare for the first corridor. travel edges carry Biayaij=0,
-    # so without this the displayed cost is 0 for any single-corridor route.
-    # Apply it to z_score too so the displayed objective matches what each
-    # solver now optimizes (boarding fare is added per start node).
-    boarding_raw, boarding_norm = get_boarding_fare(G, path[0])
-    total_cost += boarding_raw
-    z_score += w_c_input * boarding_norm
 
-    # Track routes actually ridden (from travel edges) to count real transits.
-    # A transit is when the ridden route changes — a walk to the final stop
-    # without boarding another bus does not count.
     traveled_routes = []
 
     for u, v in zip(path, path[1:]):
@@ -551,7 +598,7 @@ def calculate_final_metrics(G, path, weights):
                 traveled_routes.append(route)
 
         # Z-score uses normalized values to match the MILP/A*/HACO objective (eq 2.1)
-        z_score += (
+        Obj_val += (
             w_t_input * edge_data.get('Waktuij_norm', 0) +
             w_c_input * edge_data.get('Biayaij_norm', 0) +
             w_p_input * edge_data.get('Transitij_norm', 0)
@@ -565,5 +612,5 @@ def calculate_final_metrics(G, path, weights):
         "jarak_km": round(total_dist, 2),
         "total_biaya": round(total_cost, 0),
         "jumlah_transit": total_trans,
-        "z_score": round(z_score, 6)
+        "z_score": round(Obj_val, 6)
     }
