@@ -546,8 +546,8 @@ def construct_graph_with_costs(depart_date=None,
 
                     fare_id_a = route_to_fare_id.get(str(route_a))
                     fare_id_b = route_to_fare_id.get(str(route_b))
-                    walk_cost_ab = walk_boarding_fare(fare_id_b)
-                    walk_cost_ba = walk_boarding_fare(fare_id_a)
+                    walk_cost_ab = transfer_fare(fare_id_a, fare_id_b)
+                    walk_cost_ba = transfer_fare(fare_id_b, fare_id_a)
 
                     # key forward
                     key_fwd = f"walk_{name_a}_{route_a}_to_{name_b}_{route_b}"
