@@ -1,22 +1,253 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Log &middot; Transjakarta Route Finder{% endblock %}
+{% block title %}Panduan &middot; Transjakarta Route Finder{% endblock %}
 
 {% block content %}
-<div class="opt">
-    <div class="topbar">
-        <div class="brand">
-            <div class="brand-mark">TJ</div>
-            <div>
-                <div class="brand-name">Transjakarta &middot; User Guide</div>
-            </div>
-        </div>
-        <div class="topbar-actions">
-            <a href="{% url 'index' %}" class="nav-btn">&larr; Back</a>
-        </div>
-    </div>
-    
-</div>
+{% include 'sections/navbar.html' %}
 
+<div class="guide-page">
+  <aside class="toc">
+    <div class="toc-label">Panduan</div>
+    <a href="#step1">1 &middot; Isi halte</a>
+    <a href="#step2">2 &middot; Atur waktu</a>
+    <a href="#step3">3 &middot; Pilih preferensi</a>
+    <a href="#step4">4 &middot; Pilih solver</a>
+    <a href="#step5">5 &middot; Baca hasil</a>
+    <div class="toc-label">Developer</div>
+    <a href="#dev-flow">Alur data</a>
+    <a href="#dev-files">File GTFS</a>
+    <a href="#dev-edit">Tambah / hapus</a>
+    <a href="#dev-notes">Wajib diperhatikan</a>
+  </aside>
+
+  <div class="content">
+    <div class="eyebrow">Panduan pengguna</div>
+    <h1>Cara mencari rute</h1>
+    <p class="lede">
+      Dari memasukkan halte hingga membaca itinerary lengkap. 
+      Panduan ini menekankan alur pencarian rute, 
+      sedangkan detail teknis ada di <a href="{% url 'about' %}">halaman Tentang</a>.
+    </p>
+
+    <div class="step-block" id="step1">
+      <div class="step-head">
+        <div class="step-num">1</div>
+        <h2>Masukkan halte awal &amp; tujuan</h2>
+      </div>
+      <p>
+        Ketik nama halte pada kolom <b>Halte awal</b> (titik hijau) dan <b>Halte tujuan</b>
+        (titik merah). Saran nama halte akan muncul otomatis saat Anda mengetik &mdash;
+        pilih dari daftar agar sesuai dengan data GTFS.
+      </p>
+      <div class="demo">
+        <div class="field">
+          <span class="label">Halte awal</span>
+          <div class="input"><span class="dot start"></span>Blok M</div>
+        </div>
+        <div class="field">
+          <span class="label">Halte tujuan</span>
+          <div class="input"><span class="dot end"></span>Grogol</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-block" id="step2">
+      <div class="step-head">
+        <div class="step-num">2</div>
+        <h2>Atur tanggal &amp; jam berangkat</h2>
+      </div>
+      <p>
+        Pilih tanggal dan jam keberangkatan. Jam yang Anda pilih menentukan
+        <b>kecepatan tempuh asumsi</b> &mdash; sistem otomatis mengenali jam sibuk, normal,
+        atau malam.
+      </p>
+      <ul class="clean">
+        <li><b>Jam sibuk</b> (07.00&ndash;09.00 &amp; 17.00&ndash;19.00) &mdash; kecepatan 17.5 km/j</li>
+        <li><b>Jam normal</b> (09.01&ndash;16.59) &mdash; kecepatan 25 km/j</li>
+        <li><b>Jam malam</b> (19.01&ndash;06.58) &mdash; kecepatan 40 km/j</li>
+      </ul>
+    </div>
+
+    <div class="step-block" id="step3">
+      <div class="step-head">
+        <div class="step-num">3</div>
+        <h2>Pilih preferensi rute</h2>
+      </div>
+      <p>
+        Tentukan apa yang paling penting bagi Anda. Preferensi mengatur bobot antara
+        waktu, biaya, dan jumlah transit yang dikejar oleh solver.
+      </p>
+      <div class="demo">
+        <div class="field">
+          <span class="label">Preferensi rute</span>
+          <div class="input select-input">
+            <select>
+              <option>Seimbang</option>
+              <option selected>Paling murah</option>
+              <option>Paling cepat</option>
+              <option>Paling sedikit transit</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-block" id="step4">
+      <div class="step-head">
+        <div class="step-num">4</div>
+        <h2>Pilih metode solver</h2>
+      </div>
+      <p>
+        Pilih algoritma yang menyelesaikan pencarian. Bila ragu, gunakan default &mdash;
+        masing-masing memberi keseimbangan kecepatan dan optimalitas yang berbeda.
+      </p>
+      <div class="demo">
+        <div class="field">
+          <span class="label">Metode solver</span>
+          <div class="input select-input">
+            <select>
+              <option>MILP</option>
+              <option>A*</option>
+              <option selected>HACO</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <ul class="clean">
+        <li><b>MILP</b> &mdash; solusi optimal secara matematis (Gurobi), paling presisi.</li>
+        <li><b>A*</b> &mdash; pencarian jalur tercepat untuk satu kriteria dominan.</li>
+        <li><b>HACO</b> &mdash; metaheuristik untuk menyeimbangkan banyak kriteria sekaligus.</li>
+      </ul>
+      <p style="margin-top:14px;">Tekan <b>Cari rute &rarr;</b>. Tombol akan menampilkan animasi
+      saat sistem membangun graf dan menjalankan solver.</p>
+    </div>
+
+    <div class="step-block" id="step5">
+      <div class="step-head">
+        <div class="step-num">5</div>
+        <h2>Baca hasil perjalanan</h2>
+      </div>
+      <p>
+        Hasil menampilkan ringkasan angka, peta rute, dan itinerary langkah demi langkah
+        dengan warna koridor.
+      </p>
+      <div class="anatomy">
+        <div class="stat"><div class="big">15<small>menit</small></div><div class="lab">Waktu</div></div>
+        <div class="stat"><div class="big">Rp3.500</div><div class="lab">Biaya</div></div>
+        <div class="stat"><div class="big">1<small>transit</small></div><div class="lab">Transit</div></div>
+        <div class="stat"><div class="big">07.18</div><div class="lab">Tiba</div></div>
+      </div>
+      <ul class="clean" style="margin-top:18px;">
+        <li><b>Ringkasan</b> &mdash; waktu tempuh, total biaya, jumlah transit, serta jam berangkat &amp; tiba.</li>
+        <li><b>Peta</b> &mdash; garis rute mengikuti warna koridor yang dilalui.</li>
+        <li><b>Rute perjalanan</b> &mdash; urutan halte, titik transit, dan koridor per segmen.</li>
+      </ul>
+    </div>
+
+    <!-- ===================== Developer / backend ===================== -->
+    <div class="dev-divider">
+      <div class="eyebrow">Untuk developer (backend)</div>
+      <h1>Menyunting data GTFS.</h1>
+      <p class="lede">
+        Bagian ini untuk pengembang backend yang perlu <b>menambah atau menghapus halte
+        dan rute</b> pada data GTFS sebelum dipakai aplikasi. Ini ringkasan; panduan lengkap
+        ada di <code>docs/GTFS_EDITING_GUIDE.md</code>.
+      </p>
+    </div>
+
+    <div class="step-block" id="dev-flow">
+      <div class="step-head">
+        <div class="step-num">A</div>
+        <h2>Alur data</h2>
+      </div>
+      <p>
+        Data mentah diunduh dari <b>Transitland</b>, divalidasi dengan <b>Canonical GTFS
+        Schedule Validator</b>, lalu dipraproses dengan skrip Python menjadi folder
+        <code>GTFS_Preprocessed/</code>, dan dikemas ulang menjadi
+        <code>GTFS_Preprocessed.zip</code>.
+      </p>
+      <ul class="clean">
+        <li><b>Praproses</b> &mdash; reduksi trip per rute (ambil trip utama via <code>route_list.txt</code>), gabungkan parent/child stop, dan normalisasi <code>shape_dist_traveled</code> agar menaik.</li>
+        <li><b>Sumber edit</b> &mdash; sunting file <code>.txt</code> di dalam folder <code>GTFS_Preprocessed/</code>.</li>
+        <li><b>Muat ulang</b> &mdash; kemas ulang ke <code>.zip</code>, lalu jalankan <code>gtfsHelper.reload()</code> + <code>views.refresh_halte_cache()</code> atau restart server.</li>
+      </ul>
+      <div class="note">
+        <b>Catatan</b> &mdash; aplikasi memuat file <code>GTFS_Preprocessed.zip</code>, bukan
+        foldernya (<code>gtfs_kit.read_feed</code> di <code>gtfs_helper.py</code>). Setiap
+        perubahan folder <b>wajib di-zip ulang</b> agar terbaca.
+      </div>
+    </div>
+
+    <div class="step-block" id="dev-files">
+      <div class="step-head">
+        <div class="step-num">B</div>
+        <h2>File yang relevan</h2>
+      </div>
+      <p>Feed runtime berisi 12 file standar. Detail tiap kolom ada di
+        <a href="https://gtfs.org/documentation/schedule/reference/" target="_blank" rel="noopener">GTFS Schedule Reference</a>.</p>
+      <table class="ftable">
+        <thead><tr><th>File</th><th>Peran</th></tr></thead>
+        <tbody>
+          <tr><td><code>stops.txt</code></td><td>Halte &mdash; <code>stop_id</code>, <code>stop_name</code>, koordinat. Menjadi simpul graf.</td></tr>
+          <tr><td><code>routes.txt</code></td><td>Rute/koridor &mdash; id, nama, tipe, warna.</td></tr>
+          <tr><td><code>trips.txt</code></td><td>Satu perjalanan rute; menghubungkan <code>route_id</code> &amp; <code>service_id</code> ke urutan halte.</td></tr>
+          <tr><td><code>stop_times.txt</code></td><td>Urutan halte per trip (<code>stop_sequence</code>). Menentukan jalur.</td></tr>
+          <tr><td><code>frequencies.txt</code></td><td>Jendela operasi + headway per trip. <b>Wajib agar dapat dirutekan.</b></td></tr>
+          <tr><td><code>calendar.txt</code></td><td>Hari aktif tiap <code>service_id</code>. <b>Wajib agar dapat dirutekan.</b></td></tr>
+          <tr><td><code>fare_attributes.txt</code></td><td>Kelas tarif &amp; harga (<code>fare_id</code> &rarr; <code>price</code>).</td></tr>
+          <tr><td><code>fare_rules.txt</code></td><td>Memetakan <code>route_id</code> &rarr; <code>fare_id</code>. Tanpa aturan = rute gratis.</td></tr>
+          <tr><td><code>shapes.txt</code></td><td>Geometri polyline per <code>shape_id</code>; untuk jarak &amp; gambar peta.</td></tr>
+          <tr><td><code>transfers.txt</code></td><td>Rekomendasi transfer antar halte berdekatan.</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:13.5px; color:var(--muted);"><code>route_list.txt</code> hanya dipakai
+        saat praproses (memilih trip utama) dan <b>bukan</b> bagian dari feed runtime.</p>
+    </div>
+
+    <div class="step-block" id="dev-edit">
+      <div class="step-head">
+        <div class="step-num">C</div>
+        <h2>Tambah / hapus halte &amp; rute</h2>
+      </div>
+      <p><b>Menambah halte:</b></p>
+      <ul class="clean">
+        <li>Tambah baris di <code>stops.txt</code> (<code>stop_id</code> unik, <code>stop_name</code>, koordinat).</li>
+        <li>Hubungkan ke trip lewat <code>stop_times.txt</code> pada <code>stop_sequence</code> yang sesuai, lalu nomori ulang urutannya.</li>
+      </ul>
+      <p style="margin-top:18px;"><b>Menghapus halte:</b> lepaskan dulu dari semua trip (hapus barisnya di <code>stop_times.txt</code> dan rapikan <code>stop_sequence</code>), baru hapus barisnya di <code>stops.txt</code>. Trip harus tetap punya minimal 2 halte.</p>
+      <p style="margin-top:18px;"><b>Menambah rute:</b></p>
+      <ul class="clean">
+        <li><code>routes.txt</code> &mdash; baris baru, <code>route_id</code> unik, <code>route_type</code> = 3 (bus).</li>
+        <li><code>trips.txt</code> &mdash; trip dengan <code>service_id</code> yang aktif di <code>calendar.txt</code>.</li>
+        <li><code>stop_times.txt</code> &mdash; daftar halte berurutan (minimal 2).</li>
+        <li><code>frequencies.txt</code> &mdash; <b>wajib</b>: jendela waktu + <code>headway_secs</code>.</li>
+        <li><code>fare_rules.txt</code> &mdash; petakan ke <code>fare_id</code> (kosongkan jika gratis).</li>
+      </ul>
+      <p style="margin-top:18px;"><b>Menghapus rute:</b> hapus baris terkait di <code>stop_times.txt</code>, <code>frequencies.txt</code>, <code>trips.txt</code>, <code>routes.txt</code>, dan <code>fare_rules.txt</code>.</p>
+    </div>
+
+    <div class="step-block" id="dev-notes">
+      <div class="step-head">
+        <div class="step-num">D</div>
+        <h2>Wajib diperhatikan</h2>
+      </div>
+      <ul class="clean">
+        <li>Simpul graf di-<i>key</i> berdasarkan <b><code>stop_name</code></b>, bukan <code>stop_id</code> &mdash; nama yang sama digabung menjadi satu hub.</li>
+        <li>Sebuah trip hanya masuk graf jika <b>punya baris <code>frequencies.txt</code></b> yang mencakup jam query <b>dan</b> <code>service_id</code> aktif pada hari query di <code>calendar.txt</code>.</li>
+        <li>Jarak segmen dari selisih <code>shape_dist_traveled</code> (meter); kosong/tidak menaik &rarr; fallback ke haversine.</li>
+        <li>Tarif: rute butuh <code>fare_rules.txt</code> &rarr; <code>fare_attributes.txt</code>; tanpa itu dianggap gratis.</li>
+        <li>Setelah menyunting: <b>kemas ulang <code>.zip</code></b> lalu reload / restart, dan uji dengan pencarian nyata.</li>
+      </ul>
+    </div>
+
+    <div class="callout">
+      <div class="ctext">
+        <h3>Butuh detail lengkap?</h3>
+        <p>Langkah file-per-file dan daftar gotcha lengkap ada di <code>docs/GTFS_EDITING_GUIDE.md</code> pada repositori.</p>
+      </div>
+      <a href="https://gtfs.org/documentation/schedule/reference/" target="_blank" rel="noopener">GTFS Reference &rarr;</a>
+    </div>
+  </div>
+</div>
 {% endblock %}

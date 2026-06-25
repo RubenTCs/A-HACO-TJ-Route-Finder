@@ -15,26 +15,16 @@ from .solver_engine.utils import compute_walking_only_route, apply_terminal_walk
 from .gtfs_helper import gtfsHelper
 from .log.excel_logger import append_search, read_log
 from . import constants as C
-from . import gtfs_editor as editor
-from .gtfs_editor import EditorError
 from datetime import datetime, time
-from functools import wraps
 from time import perf_counter
-from django.conf import settings
-from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
-from django.urls import reverse
 
 HALTE_NAMES_CACHE = []
 
 
 def refresh_halte_cache():
-    """(Re)build the autocomplete cache of stop names from the current feed.
-
-    Called at import and again after the GTFS editor writes changes so new/edited
-    haltes show up without a server restart.
-    """
+    """(Re)build the autocomplete cache of stop names from the current feed."""
     global HALTE_NAMES_CACHE
     try:
         stops = gtfsHelper.stops
@@ -303,12 +293,176 @@ def index(request):
     )
 
 
+# Which result column decides the "best" solver, per preference.
+_BEST_METRIC_BY_PREF = {
+    "cepat": "waktu",
+    "murah": "biaya",
+    "min_transit": "transit",
+    "seimbang": "obj_value",
+}
+_PREF_LABELS = {
+    "seimbang": "Seimbang",
+    "min_transit": "Minimal Transit",
+    "cepat": "Tercepat",
+    "murah": "Termurah",
+}
+_METRIC_LABELS = {
+    "waktu": "waktu tempuh",
+    "biaya": "biaya",
+    "transit": "jumlah transit",
+    "obj_value": "objective value",
+}
+_SOLVER_LABELS = {"MILP": "MILP", "ASTAR": "A*", "HACO": "HACO"}
+# Fixed display order so each route's comparison block reads consistently.
+_PREF_ORDER = ["cepat", "murah", "min_transit", "seimbang"]
+_MODE_ORDER = ["JAM SIBUK", "JAM NORMAL", "JAM MALAM"]
+
+
+def _build_scenario_groups(rows):
+    """Group runs into scenarios so algorithms sit side by side.
+
+    A scenario groups runs that share route + mode + preferensi + speed, so
+    single-solver searches accumulated over time can be compared without ever
+    running all algorithms at once. Within each group the winning metric is
+    chosen by the preference (e.g. 'cepat' -> lowest waktu); rows are sorted
+    best-first and every row that reaches the best value is flagged is_best.
+    Groups with >=2 distinct solvers are marked is_compared (the meaningful
+    comparisons) and bubble to the top.
+
+    Returns a list of group dicts ready for the template.
+    """
+    def as_num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    order = []
+    buckets = {}
+    for r in rows:
+        key = (
+            r.get("halte_asal"),
+            r.get("halte_tujuan"),
+            r.get("mode_waktu"),
+            r.get("preferensi"),
+            r.get("param_speed"),
+        )
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(r)
+
+    groups = []
+    for key in order:
+        grp = buckets[key]
+        asal, tujuan, mode, pref, speed = key
+        metric = _BEST_METRIC_BY_PREF.get(pref, "obj_value")
+
+        best_per_solver = {}  # solver -> best (lowest) metric value
+        for r in grp:
+            val = as_num(r.get(metric))
+            if val is None:
+                continue
+            solver = r.get("metode_solver")
+            if solver not in best_per_solver or val < best_per_solver[solver]:
+                best_per_solver[solver] = val
+
+        compare_count = len(best_per_solver)
+        is_compared = compare_count >= 2
+        winner_val = min(best_per_solver.values()) if best_per_solver else None
+        winners = sorted(
+            s for s, v in best_per_solver.items() if v == winner_val
+        ) if winner_val is not None else []
+
+        for r in grp:
+            r["is_best"] = is_compared and as_num(r.get(metric)) == winner_val
+
+        grp_sorted = sorted(
+            grp,
+            key=lambda r: (
+                as_num(r.get(metric)) is None,
+                as_num(r.get(metric)) if as_num(r.get(metric)) is not None else 0.0,
+            ),
+        )
+
+        groups.append({
+            "asal": asal,
+            "tujuan": tujuan,
+            "mode": mode,
+            "pref": pref,
+            "pref_label": _PREF_LABELS.get(pref, pref),
+            "metric": metric,
+            "metric_label": _METRIC_LABELS.get(metric, metric),
+            "speed": speed,
+            "rows": grp_sorted,
+            "compare_count": compare_count,
+            "is_compared": is_compared,
+            "winner_labels": [_SOLVER_LABELS.get(w, w) for w in winners],
+        })
+
+    # Stable sort: compared scenarios first, recency preserved within each tier.
+    groups.sort(key=lambda g: not g["is_compared"])
+    return groups
+
+
+def _build_route_groups(rows):
+    """Nest scenarios under their route so preference x mode reads as a block.
+
+    Reuses _build_scenario_groups() for per-scenario winner detection (keeping
+    is_best identical), then groups those scenarios by (asal, tujuan) and orders
+    them by preference then mode. This lets one route's preferensi/mode
+    combinations line up top-to-bottom for easy comparison.
+    """
+    scenarios = _build_scenario_groups(rows)
+
+    def pref_rank(p):
+        try:
+            return _PREF_ORDER.index(p)
+        except ValueError:
+            return len(_PREF_ORDER)
+
+    def mode_rank(m):
+        try:
+            return _MODE_ORDER.index((m or "").upper())
+        except ValueError:
+            return len(_MODE_ORDER)
+
+    order = []
+    buckets = {}
+    for s in scenarios:
+        key = (s["asal"], s["tujuan"])
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(s)
+
+    routes = []
+    for key in order:
+        asal, tujuan = key
+        scns = sorted(
+            buckets[key],
+            key=lambda s: (pref_rank(s["pref"]), mode_rank(s["mode"])),
+        )
+        routes.append({
+            "asal": asal,
+            "tujuan": tujuan,
+            "scenarios": scns,
+            "scenario_count": len(scns),
+            "any_compared": any(s["is_compared"] for s in scns),
+        })
+
+    # Routes containing at least one real algorithm comparison bubble up.
+    routes.sort(key=lambda r: not r["any_compared"])
+    return routes
+
+
 def log(request):
     rows = read_log(newest_first=True)
     return render(
         request,
         "log.html",
         {
+            "route_groups": _build_route_groups(rows),
             "rows": rows,
             "total_searches": len(rows),
         },
@@ -321,223 +475,3 @@ def about(request):
 
 def user_guide(request):
     return render(request, "userguide.html")
-
-# =======================================================
-# region GTFS Editor
-# =======================================================
-
-EDITOR_SESSION_KEY = "gtfs_editor_ok"
-
-
-def editor_required(view):
-    """Gate a view behind the shared editor password (session flag)."""
-    @wraps(view)
-    def wrapper(request, *args, **kwargs):
-        if not request.session.get(EDITOR_SESSION_KEY):
-            request.session["editor_next"] = request.get_full_path()
-            return redirect("editor_login")
-        return view(request, *args, **kwargs)
-    return wrapper
-
-
-def editor_login(request):
-    if request.session.get(EDITOR_SESSION_KEY):
-        return redirect("editor_home")
-    if request.method == "POST":
-        password = request.POST.get("password", "")
-        if password and password == settings.GTFS_EDITOR_PASSWORD:
-            request.session[EDITOR_SESSION_KEY] = True
-            nxt = request.session.pop("editor_next", None)
-            return redirect(nxt or "editor_home")
-        messages.error(request, "Password salah.")
-    return render(request, "editor/login.html")
-
-
-def editor_logout(request):
-    request.session.pop(EDITOR_SESSION_KEY, None)
-    return redirect("editor_login")
-
-
-@editor_required
-def editor_home(request):
-    try:
-        ctx = {"counts": editor.counts()}
-    except EditorError as e:
-        messages.error(request, str(e))
-        ctx = {"counts": {}}
-    return render(request, "editor/home.html", ctx)
-
-
-@editor_required
-def editor_stops(request):
-    if request.method == "POST":
-        action = request.POST.get("action")
-        try:
-            if action == "add":
-                if editor.name_exists(request.POST.get("stop_name", "")):
-                    messages.warning(
-                        request,
-                        "Catatan: nama halte sama dengan halte lain. Mesin rute "
-                        "menganggap halte bernama sama sebagai satu titik (hub transfer).",
-                    )
-                sid = editor.add_stop(
-                    request.POST.get("stop_name"),
-                    request.POST.get("stop_lat"),
-                    request.POST.get("stop_lon"),
-                )
-                messages.success(request, f"Halte ditambah (stop_id={sid}).")
-            elif action == "edit":
-                editor.update_stop(
-                    request.POST.get("stop_id"),
-                    stop_name=request.POST.get("stop_name"),
-                    stop_lat=request.POST.get("stop_lat"),
-                    stop_lon=request.POST.get("stop_lon"),
-                )
-                messages.success(request, "Halte diperbarui.")
-            elif action == "delete":
-                editor.delete_stop(request.POST.get("stop_id"))
-                messages.success(request, "Halte dihapus.")
-            else:
-                messages.error(request, "Aksi tidak dikenal.")
-        except EditorError as e:
-            messages.error(request, str(e))
-        return redirect(f"{request.path}?q={request.POST.get('q', '')}")
-
-    query = request.GET.get("q", "")
-    edit_id = request.GET.get("edit")
-    try:
-        rows, total = editor.list_stops(query)
-        edit_stop = editor.get_stop(edit_id) if edit_id else None
-    except EditorError as e:
-        messages.error(request, str(e))
-        rows, total, edit_stop = [], 0, None
-    return render(request, "editor/stops.html", {
-        "rows": rows,
-        "total": total,
-        "shown": len(rows),
-        "query": query,
-        "edit_stop": edit_stop,
-    })
-
-
-@editor_required
-def editor_attach(request):
-    if request.method == "POST":
-        action = request.POST.get("action")
-        trip_id = request.POST.get("trip_id")
-        try:
-            if action == "attach":
-                editor.attach_stop_to_trip(
-                    trip_id,
-                    request.POST.get("stop_id"),
-                    request.POST.get("after_sequence"),
-                )
-                messages.success(request, "Halte ditambahkan ke trip.")
-            elif action == "detach":
-                editor.detach_stop_from_trip(trip_id, request.POST.get("stop_id"))
-                messages.success(request, "Halte dilepas dari trip.")
-            else:
-                messages.error(request, "Aksi tidak dikenal.")
-        except EditorError as e:
-            messages.error(request, str(e))
-        route_id = request.POST.get("route_id", "")
-        return redirect(f"{request.path}?route_id={route_id}&trip_id={trip_id or ''}")
-
-    route_id = request.GET.get("route_id", "")
-    trip_id = request.GET.get("trip_id", "")
-    try:
-        ctx = {
-            "routes": editor.get_routes(),
-            "route_id": route_id,
-            "trip_id": trip_id,
-            "trips": editor.get_trips(route_id) if route_id else [],
-            "trip_stops": editor.get_trip_stops(trip_id) if trip_id else [],
-        }
-    except EditorError as e:
-        messages.error(request, str(e))
-        ctx = {"routes": [], "route_id": route_id, "trip_id": trip_id,
-               "trips": [], "trip_stops": []}
-    return render(request, "editor/attach.html", ctx)
-
-
-@editor_required
-def editor_route_new(request):
-    if request.method == "POST":
-        try:
-            rid = editor.create_route(
-                short_name=request.POST.get("route_short_name", ""),
-                long_name=request.POST.get("route_long_name", ""),
-                route_color=request.POST.get("route_color", ""),
-                route_text_color=request.POST.get("route_text_color", ""),
-                fare_id=request.POST.get("fare_id", ""),
-                route_id=request.POST.get("route_id") or None,
-            )
-            messages.success(request, f"Rute dibuat (route_id={rid}). Tambahkan trip untuk rute ini.")
-            return redirect(f"{reverse('editor_trip_new')}?route_id={rid}")
-        except EditorError as e:
-            messages.error(request, str(e))
-    try:
-        fare_ids = editor.get_fare_ids()
-    except EditorError as e:
-        messages.error(request, str(e))
-        fare_ids = []
-    return render(request, "editor/route_new.html", {"fare_ids": fare_ids})
-
-
-@editor_required
-def editor_trip_new(request):
-    if request.method == "POST":
-        try:
-            stop_ids = [s for s in request.POST.get("stop_ids", "").split(",") if s.strip()]
-            tid = editor.create_trip(
-                route_id=request.POST.get("route_id"),
-                service_id=request.POST.get("service_id"),
-                stop_ids=stop_ids,
-                trip_headsign=request.POST.get("trip_headsign", ""),
-                trip_short_name=request.POST.get("trip_short_name", ""),
-                direction_id=request.POST.get("direction_id", "0"),
-                headway_secs=request.POST.get("headway_secs", "600"),
-                start_time=request.POST.get("start_time", "00:00:00"),
-                end_time=request.POST.get("end_time", "23:59:59"),
-            )
-            messages.success(request, f"Trip dibuat (trip_id={tid}).")
-            return redirect("editor_home")
-        except EditorError as e:
-            messages.error(request, str(e))
-    try:
-        ctx = {
-            "routes": editor.get_routes(),
-            "service_ids": editor.get_service_ids(),
-            "route_id": request.GET.get("route_id", ""),
-        }
-    except EditorError as e:
-        messages.error(request, str(e))
-        ctx = {"routes": [], "service_ids": [], "route_id": ""}
-    return render(request, "editor/trip_new.html", ctx)
-
-
-# --- Editor JSON endpoints (for the cascade selects + trip builder) ---
-
-@editor_required
-def api_editor_stops(request):
-    query = request.GET.get("q", "")
-    try:
-        rows, _ = editor.list_stops(query, limit=20)
-    except EditorError:
-        rows = []
-    return JsonResponse(rows, safe=False)
-
-
-@editor_required
-def api_editor_trip_stops(request):
-    trip_id = request.GET.get("trip_id", "")
-    try:
-        rows = editor.get_trip_stops(trip_id) if trip_id else []
-    except EditorError:
-        rows = []
-    return JsonResponse(rows, safe=False)
-
-
-# =======================================================
-# endregion
-# =======================================================

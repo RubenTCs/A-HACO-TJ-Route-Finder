@@ -3,20 +3,7 @@
 
 {% block content %}
 <div class="opt">
-    <div class="topbar">
-        <div class="brand">
-            <div class="brand-mark">TJ</div>
-            <div>
-                <div class="brand-name">Transjakarta &middot; Route Finder</div>
-            </div>
-        </div>
-        <div class="topbar-actions">
-            {% comment %} <a href="{% url 'about' %}" class="nav-btn">About</a>
-            <a href="{% url 'user_guide' %}" class="nav-btn">Guide</a>
-            <a href="{% url 'editor_home' %}" class="nav-btn">Admin</a> {% endcomment %}
-            <a href="{% url 'log' %}" class="nav-btn">Log</a>
-        </div>
-    </div>
+    {% include 'sections/navbar.html' %}
 
     <div class="page-shell">
         {% include 'sections/form.html' %}
@@ -39,20 +26,7 @@
 {{ hasil|json_script:"hasilData" }}
 {% endif %}
 
-<script>
-    // Ubah hasil JSON menjadi objek JavaScript
-    var hasil = {};
-    try {
-        var hasilEl = document.getElementById("hasilData");
-        if (hasilEl) hasil = JSON.parse(hasilEl.textContent);
-    } catch (e) {
-        console.error("Gagal parsing hasil JSON:", e);
-    }
-    window.hasil = hasil;
-    var pathCoords = hasil.path_coords || [];
-    console.log("hasil dari Django:", hasil);
-</script>
-
+<script src="{% static 'js/index.js' %}"></script>
 <script src="{% static 'js/form.js' %}"></script>
 {% if hasil and hasil.detailed_journey %}
 <script src="{% static 'js/map.js' %}"></script>

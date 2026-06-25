@@ -6,9 +6,9 @@ urlpatterns = [
     # region Views
     # =======================================================
 
-    path("", views.index, name="index"),
+    path("", views.about, name="about"),
+    path("cari-rute/", views.index, name="index"),
     path("log/", views.log, name="log"),
-    path("about/", views.about, name="about"),
     path("user-guide/", views.user_guide, name="user_guide"),
 
     # =======================================================

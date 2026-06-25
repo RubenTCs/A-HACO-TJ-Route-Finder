@@ -17,7 +17,9 @@
             crossorigin=""></script>
 
         <!-- Custom CSS -->
-        <link rel="stylesheet" href="{% static 'css/customstyle.css' %}" />
+        <link rel="stylesheet" href="{% static 'css/customstyle.css' %}?v=3" />
+
+        {% block head %}{% endblock %}
     </head>
     <body>
         {% block content %}{% endblock %}
