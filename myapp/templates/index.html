@@ -3,17 +3,7 @@
 
 {% block content %}
 <div class="opt">
-    <div class="topbar">
-        <div class="brand">
-            <div class="brand-mark">TJ</div>
-            <div>
-                <div class="brand-name">Transjakarta &middot; Route Finder</div>
-            </div>
-        </div>
-        <div class="topbar-actions"> 
-            <a href="{% url 'log' %}" class="nav-btn">Log &rarr;</a>
-        </div>
-    </div>
+    {% include 'sections/navbar.html' %}
 
     <div class="page-shell">
         {% include 'sections/form.html' %}

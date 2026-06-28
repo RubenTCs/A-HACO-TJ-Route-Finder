@@ -5,17 +5,7 @@
 
 {% block content %}
 <div class="opt">
-    <div class="topbar">
-        <div class="brand">
-            <div class="brand-mark">TJ</div>
-            <div>
-                <div class="brand-name">Transjakarta &middot; Log</div>
-            </div>
-        </div>
-        <div class="topbar-actions">
-            <a href="{% url 'index' %}" class="nav-btn">&larr; Back</a>
-        </div>
-    </div>
+    {% include 'sections/navbar.html' %}
 
     <div class="log-shell">
         <div class="log-filters">
